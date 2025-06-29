@@ -1,24 +1,32 @@
 import React from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 
-const WelcomeScreen = ({ navigation }) => {
+const WelcomeScreen = () => {
+  const navigation = useNavigation();
+
   return (
     <View style={styles.container}>
-      <Image
-        source={require('../../assets/images/Banner.png')} // ảnh bạn đặt ở assets/intro.png
-        style={styles.image}
-        resizeMode="contain"
-      />
+      <View style={styles.top}>
+        <Image
+          source={require('../../assets/images/Banner.png')}
+          style={styles.image}
+          resizeMode="contain"
+        />
+      </View>
 
-      <Text style={styles.title}>Welcome To EatUp</Text>
+      <View style={styles.middle}>
+        <Text style={styles.title}>Welcome To EatUp</Text>
+        <Text style={styles.subtitle}>
+          Order with ease, savor the flavors your{'\n'}favorite food, just a tap away
+        </Text>
+      </View>
 
-      <Text style={styles.subtitle}>
-        Order with ease, savor the flavors your favorite food, just a tap away
-      </Text>
-
-      <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Login')}>
-        <Text style={styles.buttonText}>GET STARTED</Text>
-      </TouchableOpacity>
+      <View style={styles.bottom}>
+        <TouchableOpacity style={styles.button} onPress={() => navigation.navigate('Login')}>
+          <Text style={styles.buttonText}>GET STARTED</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 };
@@ -29,36 +37,50 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFEFD5',
-    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  top: {
+    flex: 4,
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    alignItems: 'center',
+    paddingTop: 40,
   },
   image: {
     width: '100%',
-    height: 250,
+    height: '100%',
+  },
+  middle: {
+    flex: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: 'bold',
     color: '#D94F4F',
-    marginTop: 30,
+    marginBottom: 10,
   },
   subtitle: {
-    textAlign: 'center',
     color: '#444',
-    fontSize: 14,
-    marginTop: 10,
-    lineHeight: 22,
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  bottom: {
+    padding: 20,
+    alignItems: 'center',
   },
   button: {
-    marginTop: 40,
     backgroundColor: '#F76C6C',
-    paddingVertical: 12,
-    paddingHorizontal: 30,
+    paddingVertical: 14,
+    paddingHorizontal: 50,
     borderRadius: 25,
+    width: '100%',
   },
   buttonText: {
     color: '#fff',
     fontWeight: 'bold',
+    textAlign: 'center',
+    fontSize: 16,
   },
 });

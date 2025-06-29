@@ -1,86 +1,228 @@
 import React, { useState } from 'react';
 import {
-    View, Text, TextInput, StyleSheet,
-    TouchableOpacity, Image
+  View, Text, TextInput, StyleSheet,
+  TouchableOpacity, Image, Pressable, Alert
 } from 'react-native';
+import { Feather, Entypo } from '@expo/vector-icons';
+import Toast from 'react-native-toast-message';
+import { linkapi } from '../navigation/config'; // Đường dẫn import config tùy theo cấu trúc của bạn
 
-const LoginScreen = () => {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [role, setRole] = useState('User'); // Default role
+export default function LoginScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [role, setRole] = useState('User');
 
-    return (
-        <View style={styles.container}>
-            <Image source={require('../../assets/images/Logo.png')} style={styles.logo} />
+  const handleLogin = async () => {
+    if (!email || !password) {
+      Toast.show({
+        type: 'info',
+        text1: 'Vui lòng nhập đầy đủ thông tin!',
+      });
+      return;
+    }
 
-            <Text style={styles.title}>ĐĂNG NHẬP</Text>
+    try {
+      const response = await fetch(linkapi + 'login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: email,
+          password_hash: password,
+          role: role
+        })
+      });
 
-            <View style={styles.inputBox}>
-                <TextInput
-                    placeholder="Email"
-                    style={styles.input}
-                    value={email}
-                    onChangeText={setEmail}
-                />
-            </View>
+      const data = await response.json();
 
-            <View style={styles.inputBox}>
-                <TextInput
-                    placeholder="Password"
-                    secureTextEntry
-                    style={styles.input}
-                    value={password}
-                    onChangeText={setPassword}
-                />
-            </View>
+      if (response.ok) {
+        Toast.show({
+          type: 'success', // success | error | info
+          text1: 'Đăng nhập thành công!',
+        });
+        // Sau khi đăng nhập thành công, bạn có thể lưu user vào AsyncStorage hoặc chuyển màn hình khác
+        navigation.navigate('Home');
+      } else {
+        Toast.show({
+          type: 'info',
+          text1: data.message,
+        });
+      }
 
-            <View style={styles.roleRow}>
-                <TouchableOpacity onPress={() => setRole('Admin')}>
-                    <Text style={[styles.roleOption, role === 'Admin' && styles.selected]}>○ Admin</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setRole('User')}>
-                    <Text style={[styles.roleOption, role === 'User' && styles.selected]}>○ User</Text>
-                </TouchableOpacity>
-            </View>
+    } catch (error) {
+      console.error(error);
+      Toast.show({
+        type: 'error',
+        text1: 'Có lỗi xảy ra, vui lòng thử lại!',
+      });
+    }
+  };
 
-            <TouchableOpacity style={styles.loginBtn} onPress={() => console.log('Đăng nhập')}>
-                <Text style={styles.loginText}>Đăng Nhập</Text>
-            </TouchableOpacity>
+  return (
+    <View style={styles.container}>
+      <Image source={require('../../assets/images/Logo.png')} style={styles.logo} />
 
-            <TouchableOpacity>
-                <Text style={styles.link}>Quên mật khẩu?</Text>
-            </TouchableOpacity>
+      <Text style={styles.title}>ĐĂNG NHẬP</Text>
 
-            <Text style={styles.footerText}>
-                Bạn chưa có tài khoản? <Text style={styles.link}>Đăng ký</Text>
-            </Text>
-        </View>
-    );
-};
+      <View style={styles.inputBox}>
+        <Entypo name="email" size={22} color="#f55" style={styles.icon} />
+        <TextInput
+          placeholder="Email"
+          value={email}
+          onChangeText={setEmail}
+          style={styles.input}
+          placeholderTextColor="#999"
+        />
+      </View>
 
-export default LoginScreen;
+      <View style={styles.inputBox}>
+        <Entypo name="lock" size={22} color="#f55" style={styles.icon} />
+        <TextInput
+          placeholder="Password"
+          secureTextEntry={!showPassword}
+          value={password}
+          onChangeText={setPassword}
+          style={styles.input}
+          placeholderTextColor="#999"
+        />
+        <Pressable onPress={() => setShowPassword(!showPassword)}>
+          <Feather name={showPassword ? 'eye-off' : 'eye'} size={22} color="#222" />
+        </Pressable>
+      </View>
+
+      <View style={styles.roleRow}>
+        <TouchableOpacity style={styles.radioGroup} onPress={() => setRole('Admin')}>
+          <View style={styles.radioOuter}>
+            {role === 'Admin' && <View style={styles.radioInner} />}
+          </View>
+          <Text style={styles.roleText}>Admin</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.radioGroup} onPress={() => setRole('User')}>
+          <View style={styles.radioOuter}>
+            {role === 'User' && <View style={styles.radioInner} />}
+          </View>
+          <Text style={styles.roleText}>User</Text>
+        </TouchableOpacity>
+      </View>
+
+      <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
+        <Text style={styles.loginText}>Đăng Nhập</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity>
+        <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.footerText}>
+        Bạn chưa có tài khoản?
+        <Text style={styles.registerText} onPress={() => navigation.navigate('Register')}> Đăng ký</Text>
+      </Text>
+    </View>
+  );
+}
+
 
 const styles = StyleSheet.create({
-    container: { flex: 1, alignItems: 'center', paddingTop: 80, backgroundColor: '#fff' },
-    logo: { width: 100, height: 100, marginBottom: 10 },
-    title: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-
-    inputBox: {
-        borderWidth: 1, borderColor: '#f55', borderRadius: 10,
-        paddingHorizontal: 15, marginVertical: 10, width: '80%'
-    },
-    input: { paddingVertical: 10 },
-
-    roleRow: { flexDirection: 'row', marginTop: 10 },
-    roleOption: { marginHorizontal: 20, fontSize: 16, color: '#444' },
-    selected: { fontWeight: 'bold', color: '#f55' },
-
-    loginBtn: {
-        marginTop: 20, backgroundColor: '#f55',
-        paddingVertical: 12, paddingHorizontal: 50, borderRadius: 25
-    },
-    loginText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-
-    link: { marginTop: 10, color: '#f55', fontWeight: '500' },
-    footerText: { marginTop: 30, color: '#444' },
+  container: {
+    flex: 1,
+    paddingTop: 60,
+    paddingHorizontal: 35,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logo: {
+    width: 130,
+    height: 130,
+    resizeMode: 'contain',
+    marginBottom: 20,
+  },
+  title: {
+    fontWeight: 'bold',
+    fontSize: 26,
+    marginBottom: 30,
+    color: '#000',
+  },
+  inputBox: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#f55',
+    borderRadius: 30,
+    paddingHorizontal: 18,
+    marginBottom: 18,
+  },
+  icon: {
+    marginRight: 10,
+  },
+  input: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 17,
+    color: '#000',
+  },
+  roleRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginBottom: 25,
+  },
+  radioGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+  },
+  radioOuter: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#f55',
+  },
+  roleText: {
+    fontSize: 18,
+    color: '#444',
+  },
+  loginBtn: {
+    backgroundColor: '#f55',
+    width: '100%',
+    paddingVertical: 16,
+    borderRadius: 30,
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  loginText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  forgotText: {
+    color: '#f55',
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 20,
+    fontSize: 16,
+  },
+  footerText: {
+    textAlign: 'center',
+    color: '#444',
+    fontSize: 16,
+  },
+  registerText: {
+    color: '#f55',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
 });
