@@ -1,21 +1,30 @@
-import React, { useEffect, useState } from 'react';
-import {
-    View, Text, TextInput, StyleSheet, Image, TouchableOpacity, ScrollView, FlatList, ActivityIndicator
-} from 'react-native';
 import { Entypo, Feather } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import React, { useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    FlatList,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text, TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import Swiper from 'react-native-swiper';
-import { linkapi, linkanh } from '../navigation/config';
+import { linkanh, linkapi } from '../navigation/config';
 
-export default function HomeScreen() {
+export default function HomeScreen({ navigation }) {
     const [search, setSearch] = useState('');
     const [categories, setCategories] = useState([]);
+    const [highestRated, setHighestRated] = useState([]);
     const [popularItems, setPopularItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [city, setCity] = useState('Hồ Chí Minh');
 
     useEffect(() => {
         fetchCategories();
+        fetchHighestRated();
         fetchPopularItems();
     }, []);
 
@@ -32,24 +41,56 @@ export default function HomeScreen() {
         }
     };
 
-    const fetchPopularItems = async () => {
+    const fetchHighestRated = async () => {
         try {
-            setLoading(true);
-            const res = await fetch(linkapi + 'product/popular');
+            const res = await fetch(linkapi + 'product/highest-rated');
             const data = await res.json();
-            setPopularItems(data);
-            setLoading(false);
+            const filtered = data.filter(item => item.status === true && item.rating > 4.5);
+            setHighestRated(filtered);
         } catch (error) {
             console.error(error);
-            setLoading(false);
         }
     };
+
+    const fetchPopularItems = async () => {
+        try {
+            const res = await fetch(linkapi + 'product/popular');
+            const data = await res.json();
+            const filtered = data.filter(item => item.status === true);
+            setPopularItems(filtered);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const renderProduct = (item) => (
+        <TouchableOpacity onPress={() => navigation.navigate('ProductDetail', { product: item })}>
+            <View style={styles.foodCard}>
+                <Image source={{ uri: linkanh + item.image_url }} style={styles.foodImage} />
+                <View style={styles.infoContainer}>
+                    <View style={styles.rowBetween}>
+                        <Text style={styles.foodName} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+                        <Text style={styles.foodPrice}>{item.price} $</Text>
+                    </View>
+                    <View style={styles.rowBetween}>
+                        <View style={styles.infoRow}>
+                            <Text style={styles.infoText}>{item.rating}/5</Text>
+                            <Entypo name="star" size={14} color="#FFD700" style={{ marginLeft: 4 }} />
+                        </View>
+                        <TouchableOpacity style={styles.addBtn}>
+                            <Feather name="plus" size={18} color="#fff" />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </TouchableOpacity>
+    );
 
     return (
         <View style={styles.container}>
             <ScrollView showsVerticalScrollIndicator={false}>
 
-                {/* Chọn thành phố + giỏ hàng */}
+                {/* Khu vực */}
                 <Text style={styles.labelText}>Khu vực</Text>
                 <View style={styles.headerRow}>
                     <View style={styles.locationRow}>
@@ -69,7 +110,7 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Thanh tìm kiếm */}
+                {/* Tìm kiếm */}
                 <View style={styles.searchBox}>
                     <TextInput
                         placeholder="Tìm kiếm món ăn"
@@ -83,7 +124,7 @@ export default function HomeScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Slide Banner */}
+                {/* Banner */}
                 <View style={{ height: 150, marginBottom: 15 }}>
                     <Swiper autoplay showsPagination>
                         <Image source={require('../../assets/images/BannerMain.png')} style={styles.banner} />
@@ -92,7 +133,7 @@ export default function HomeScreen() {
                     </Swiper>
                 </View>
 
-                {/* Danh mục loại đồ ăn */}
+                {/* Danh mục */}
                 <View style={styles.sectionRow}>
                     {loading ? <ActivityIndicator color="#f55" /> : (
                         <FlatList
@@ -103,50 +144,38 @@ export default function HomeScreen() {
                             renderItem={({ item }) => (
                                 <View style={{ alignItems: 'center', marginRight: 10 }}>
                                     <View style={[styles.categoryBox, { backgroundColor: item.color ? `#${item.color}` : '#FFCCCC' }]}>
-                                        <Image
-                                            source={{ uri: linkanh + item.image_url }}
-                                            style={styles.categoryImage}
-                                        />
+                                        <Image source={{ uri: linkanh + item.image_url }} style={styles.categoryImage} />
                                     </View>
                                     <Text style={styles.categoryText}>{item.name}</Text>
                                 </View>
                             )}
                         />
-
                     )}
                 </View>
+
+                {/* Đánh giá cao */}
+                <View style={styles.popularRow}>
+                    <Text style={styles.sectionTitle}>Đánh giá cao</Text>
+                </View>
+                <FlatList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={highestRated}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => renderProduct(item)}
+                />
 
                 {/* Phổ biến */}
                 <View style={styles.popularRow}>
                     <Text style={styles.sectionTitle}>Phổ biến</Text>
-                    <TouchableOpacity onPress={fetchPopularItems}>
-                        <Text style={styles.seeAll}>Làm mới</Text>
-                    </TouchableOpacity>
                 </View>
-
-                {loading ? <ActivityIndicator color="#f55" /> : (
-                    <FlatList
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        data={popularItems}
-                        keyExtractor={(item) => item._id}
-                        renderItem={({ item }) => (
-                            <View style={styles.foodCard}>
-                                <Image source={{ uri: linkanh + item.image_url }} style={styles.foodImage} />
-                                <Text style={styles.foodName}>{item.name}</Text>
-                                <Text style={styles.foodPrice}>{item.price} VNĐ</Text>
-                                <View style={styles.infoRow}>
-                                    <Text style={styles.rating}>{item.rating}/5 ⭐</Text>
-                                    <Text style={styles.time}>{item.time}</Text>
-                                </View>
-                                <TouchableOpacity style={styles.addBtn}>
-                                    <Feather name="plus" size={20} color="#fff" />
-                                </TouchableOpacity>
-                            </View>
-                        )}
-                    />
-                )}
-
+                <FlatList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={popularItems}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => renderProduct(item)}
+                />
             </ScrollView>
         </View>
     );
@@ -213,6 +242,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         marginBottom: 10,
+        marginTop: 10,
     },
     sectionTitle: {
         fontSize: 18,
@@ -223,47 +253,53 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
     foodCard: {
-        width: 160,
-        borderWidth: 1,
-        borderColor: '#ddd',
-        borderRadius: 10,
-        padding: 10,
+        width: 170,
+        borderRadius: 12,
+        backgroundColor: '#eee',
         marginRight: 15,
+        overflow: 'hidden',
         position: 'relative',
     },
     foodImage: {
         width: '100%',
         height: 100,
-        borderRadius: 8,
-        marginBottom: 8,
+    },
+    infoContainer: {
+        padding: 10,
+        backgroundColor: '#eee',
+    },
+    rowBetween: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     foodName: {
-        fontSize: 16,
-        fontWeight: '500',
-        marginBottom: 4,
+        fontSize: 15,
+        fontWeight: 'bold',
+        color: '#000',
+        flex: 1,
+        marginRight: 5,
     },
     foodPrice: {
         color: '#f55',
         fontWeight: 'bold',
-        marginBottom: 4,
+        fontSize: 14,
     },
     infoRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        alignItems: 'center',
     },
-    rating: {
+    infoText: {
         fontSize: 12,
-    },
-    time: {
-        fontSize: 12,
+        color: '#555',
     },
     addBtn: {
         backgroundColor: '#f55',
-        padding: 8,
-        borderRadius: 20,
-        position: 'absolute',
-        right: 10,
-        bottom: 10,
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        justifyContent: 'center',
+        alignItems: 'center',
     },
     labelText: {
         fontSize: 18,
