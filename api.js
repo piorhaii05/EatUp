@@ -99,12 +99,41 @@ router.post('/product', async (req, res) => {
     }
 });
 
-// Lấy sản phẩm phổ biến theo rating giảm dần
-router.get('/product/popular', async (req, res) => {
-    await mongoose.connect(COMMON.uri);
-    const products = await ProductModel.find().sort({ rating: -1 }).limit(10);
-    res.send(products);
+// Lấy sản phẩm phổ biến theo rating giảm dần và chỉ lấy sản phẩm đang mở bán, rating > 4.5
+router.get('/product/highest-rated', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const products = await ProductModel.find({
+            status: true,
+            rating: { $gt: 4.5 }
+        })
+            .sort({ rating: -1 })
+            .limit(10);
+
+        res.send(products);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+    }
 });
+
+// Sản phẩm phổ biến theo số lượt mua cao nhất
+router.get('/product/popular', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const products = await ProductModel.find({ status: true })
+            .sort({ purchases: -1 }) // Giảm dần theo purchases
+            .limit(7);               // Lấy đúng 7 sản phẩm
+
+        res.send(products);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+    }
+});
+
+
+
 
 // ------------------ CATEGORY ------------------
 

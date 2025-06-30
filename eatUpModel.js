@@ -16,7 +16,8 @@ const ProductSchema = new mongoose.Schema({
     price: { type: Number, required: true },
     image_url: { type: String, default: '' },
     status: { type: Boolean, default: false },
-    rating: { type: Number, default: 5 }
+    rating: { type: Number, default: 5 },
+    purchases: { type: Number, default: 0 }
 });
 
 
