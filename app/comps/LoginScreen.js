@@ -1,11 +1,17 @@
+import { Entypo, Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useState } from 'react';
+
 import {
-  View, Text, TextInput, StyleSheet,
-  TouchableOpacity, Image, Pressable, Alert
+  Image, Pressable,
+  StyleSheet,
+  Text, TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
-import { Feather, Entypo } from '@expo/vector-icons';
 import Toast from 'react-native-toast-message';
 import { linkapi } from '../navigation/config'; // Đường dẫn import config tùy theo cấu trúc của bạn
+
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -39,15 +45,15 @@ export default function LoginScreen({ navigation }) {
 
       if (response.ok) {
         Toast.show({
-          type: 'success', // success | error | info
+          type: 'success',
           text1: 'Đăng nhập thành công!',
         });
-        // Sau khi đăng nhập thành công, bạn có thể lưu user vào AsyncStorage hoặc chuyển màn hình khác
+        await AsyncStorage.setItem('user', JSON.stringify(data.user));
         navigation.navigate('Home');
       } else {
         Toast.show({
-          type: 'info',
-          text1: data.message,
+          type: 'error',
+          text1: data.message || 'Đăng nhập thất bại!',
         });
       }
 
@@ -59,6 +65,7 @@ export default function LoginScreen({ navigation }) {
       });
     }
   };
+
 
   return (
     <View style={styles.container}>

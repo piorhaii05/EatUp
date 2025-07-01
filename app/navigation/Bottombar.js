@@ -1,10 +1,10 @@
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import HomeScreen from '../comps/HomeScreen';
-import FavoriteScreen from '../comps/FavoriteScreen';
-import ContactScreen from '../comps/ContactScreen';
-import ProfileScreen from '../comps/ProfileScreen';
 import { Entypo, Feather } from '@expo/vector-icons';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View } from 'react-native';
+import ContactScreen from '../comps/ContactScreen';
+import FavoriteScreen from '../comps/FavoriteScreen';
+import HomeScreen from '../comps/HomeScreen';
+import ProfileScreen from '../comps/ProfileScreen';
 
 const Tab = createBottomTabNavigator();
 

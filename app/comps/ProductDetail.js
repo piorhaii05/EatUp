@@ -1,31 +1,113 @@
 import { Entypo, Feather } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useEffect, useState } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { linkanh } from '../navigation/config';
+import Toast from 'react-native-toast-message';
+import { linkanh, linkapi } from '../navigation/config';
 
 export default function ProductDetail({ route, navigation }) {
     const { product } = route.params;
     const [quantity, setQuantity] = useState(1);
+    const [isFavorite, setIsFavorite] = useState(false);
+    const [userId, setUserId] = useState(null);
+
+    useEffect(() => {
+        const fetchUserId = async () => {
+            const userString = await AsyncStorage.getItem('user');
+            const user = JSON.parse(userString);
+            setUserId(user?._id);
+            if (user?._id) {
+                checkFavorite(user._id);
+            }
+        };
+        fetchUserId();
+    }, []);
+
+    const checkFavorite = async (user_id) => {
+        try {
+            const res = await fetch(linkapi + 'favorite/' + user_id);
+            const data = await res.json();
+            const exists = data.find(item => item.product_id === product._id);
+            setIsFavorite(!!exists);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const toggleFavorite = async () => {
+        if (!userId) return;
+
+        try {
+            if (isFavorite) {
+                await fetch(linkapi + 'favorite/remove', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, product_id: product._id })
+                });
+            } else {
+                await fetch(linkapi + 'favorite/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, product_id: product._id })
+                });
+            }
+            setIsFavorite(!isFavorite);
+        } catch (error) {
+            console.error(error);
+        }
+    };
+
+    const addToCart = async () => {
+    if (!userId) return;
+
+    try {
+        await fetch(linkapi + 'cart/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                user_id: userId,
+                product_id: product._id,
+                quantity: quantity
+            })
+        });
+        Toast.show({
+            type: 'success',
+            text1: 'Đã thêm vào giỏ hàng!',
+        });
+    } catch (error) {
+        console.error(error);
+        Toast.show({
+            type: 'error',
+            text1: 'Lỗi thêm vào giỏ hàng!',
+        });
+    }
+};
+
 
     const increaseQuantity = () => setQuantity(quantity + 1);
     const decreaseQuantity = () => quantity > 1 && setQuantity(quantity - 1);
 
     return (
         <View style={{ flex: 1 }}>
-            {/* Nút quay lại */}
-            <View style={styles.headerButtons}>
+            <View style={styles.headerRow}>
                 <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
                     <Entypo name="chevron-left" size={24} color="#000" />
                 </TouchableOpacity>
+                <TouchableOpacity style={styles.favoriteBtn} onPress={toggleFavorite}>
+                    <Entypo
+                        name={isFavorite ? "heart" : "heart-outlined"}
+                        size={24}
+                        color={isFavorite ? "#f55" : "#000"}
+                    />
+                </TouchableOpacity>
             </View>
 
-            <ScrollView>
-                <Image source={{ uri: linkanh + product.image_url }} style={styles.image} />
+            <Image source={{ uri: linkanh + product.image_url }} style={styles.image} />
 
+            <ScrollView>
                 <View style={styles.infoContainer}>
                     <View style={styles.rowBetween}>
                         <Text style={styles.name}>{product.name}</Text>
-                        <Text style={styles.time}>22min</Text>
                     </View>
 
                     <Text style={styles.price}>{product.price} $</Text>
@@ -71,7 +153,7 @@ export default function ProductDetail({ route, navigation }) {
 
             <View style={styles.footer}>
                 <Text style={styles.total}>Tổng tiền: {(product.price * quantity).toFixed(2)} $</Text>
-                <TouchableOpacity style={styles.addBtn}>
+                <TouchableOpacity style={styles.addBtn} onPress={addToCart}>
                     <Feather name="shopping-cart" size={20} color="#fff" />
                     <Text style={styles.addText}> Thêm vào giỏ hàng</Text>
                 </TouchableOpacity>
@@ -81,13 +163,23 @@ export default function ProductDetail({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-    headerButtons: {
-        position: 'absolute',
-        top: 40,
-        left: 15,
+    headerRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingTop: 40,
+        paddingHorizontal: 15,
         zIndex: 10,
+        position: 'absolute',
+        width: '100%',
     },
     backBtn: {
+        backgroundColor: '#fff',
+        padding: 8,
+        borderRadius: 20,
+        elevation: 3,
+    },
+    favoriteBtn: {
         backgroundColor: '#fff',
         padding: 8,
         borderRadius: 20,
