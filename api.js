@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { UserModel, ProductModel, CategoryModel } = require('./eatUpModel');
+const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel } = require('./eatUpModel');
 const COMMON = require('./COMMON');
 
 const router = express.Router();
@@ -68,11 +68,46 @@ router.post('/login', async (req, res) => {
             return res.status(401).send({ message: 'Thông tin tài khoản của bạn không chính xác!' });
         }
 
+        console.log('User sau khi đăng nhập:', user);
+
+        // Trả về thông tin cần thiết, ép _id thành string, không gửi password_hash
         res.status(200).send({
             message: 'Đăng nhập thành công!',
-            user: user
+            user: {
+                _id: user._id.toString(),
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                role: user.role,
+                avatar_url: user.avatar_url,
+                gender: user.gender || 'Chưa cập nhập',
+            }
         });
 
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+    }
+});
+
+router.put('/change-password/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const { old_password, new_password } = req.body;
+        const user = await UserModel.findById(req.params.id);
+
+        if (!user) {
+            return res.status(404).send({ message: 'Không tìm thấy người dùng' });
+        }
+
+        if (user.password_hash !== old_password) {
+            return res.status(400).send({ message: 'Mật khẩu cũ không đúng!' });
+        }
+
+        user.password_hash = new_password;
+        await user.save();
+
+        res.send({ message: 'Đổi mật khẩu thành công!' });
     } catch (error) {
         console.error(error);
         res.status(500).send({ message: 'Lỗi server!', error: error.message });
@@ -142,4 +177,283 @@ router.get('/category', async (req, res) => {
     await mongoose.connect(COMMON.uri);
     const categories = await CategoryModel.find();
     res.send(categories);
+});
+
+// ------------------ CART ------------------
+
+// Lấy giỏ hàng theo user_id
+router.get('/cart/:user_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const cart = await CartModel.findOne({ user_id: req.params.user_id });
+
+    if (!cart || cart.items.length === 0) {
+        return res.send({ user_id: req.params.user_id, items: [] });
+    }
+
+    // Map lại danh sách sản phẩm kèm thông tin chi tiết
+    const detailedItems = await Promise.all(cart.items.map(async (item) => {
+        const product = await ProductModel.findById(item.product_id);
+        return {
+            product_id: item.product_id,
+            quantity: item.quantity,
+            product_name: product?.name || '',
+            product_image: product?.image_url || '',
+            product_price: product?.price || 0
+        };
+    }));
+
+    res.send({
+        user_id: req.params.user_id,
+        items: detailedItems
+    });
+});
+
+
+// Thêm hoặc cập nhật sản phẩm trong giỏ hàng
+router.post('/cart/add', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, product_id, quantity } = req.body;
+
+    if (!user_id || !product_id) {
+        return res.status(400).send({ message: 'Thiếu user_id hoặc product_id' });
+    }
+
+    let cart = await CartModel.findOne({ user_id });
+
+    if (!cart) {
+        cart = await CartModel.create({
+            user_id,
+            items: [{ product_id, quantity: quantity || 1 }]
+        });
+    } else {
+        const itemIndex = cart.items.findIndex(item => item.product_id === product_id);
+        if (itemIndex > -1) {
+            cart.items[itemIndex].quantity += (quantity || 1);
+        } else {
+            cart.items.push({ product_id, quantity: quantity || 1 });
+        }
+        await cart.save();
+    }
+
+    res.send(cart);
+});
+
+// Cập nhật số lượng sản phẩm trong giỏ hàng
+router.put('/cart/update', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, product_id, quantity } = req.body;
+
+    if (!user_id || !product_id || quantity === undefined) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    const cart = await CartModel.findOne({ user_id });
+
+    if (cart) {
+        const item = cart.items.find(item => item.product_id === product_id);
+        if (item) {
+            item.quantity = quantity;
+            await cart.save();
+            return res.send(cart);
+        }
+    }
+
+    res.status(404).send({ message: 'Không tìm thấy sản phẩm trong giỏ' });
+});
+
+// Xóa sản phẩm khỏi giỏ hàng
+router.delete('/cart/remove', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, product_id } = req.body;
+
+    if (!user_id || !product_id) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    const cart = await CartModel.findOne({ user_id });
+
+    if (cart) {
+        cart.items = cart.items.filter(item => item.product_id !== product_id);
+        await cart.save();
+        return res.send(cart);
+    }
+
+    res.status(404).send({ message: 'Không tìm thấy giỏ hàng' });
+});
+
+
+// ------------------ Favorite ------------------
+
+// Lấy danh sách sản phẩm yêu thích của user
+router.get('/favorite/:user_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const favorites = await FavoriteModel.find({ user_id: req.params.user_id });
+
+    // Lấy thông tin chi tiết từng sản phẩm
+    const detailedFavorites = await Promise.all(favorites.map(async (item) => {
+        const product = await ProductModel.findById(item.product_id);
+        return {
+            product_id: item.product_id,
+            product_name: product?.name || '',
+            product_image: product?.image_url || '',
+            product_price: product?.price || 0
+        };
+    }));
+
+    res.send(detailedFavorites);
+});
+
+
+// Thêm sản phẩm vào danh sách yêu thích
+router.post('/favorite/add', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, product_id } = req.body;
+
+    if (!user_id || !product_id) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    const existing = await FavoriteModel.findOne({ user_id, product_id });
+    if (existing) {
+        return res.status(200).send({ message: 'Đã có trong danh sách yêu thích' });
+    }
+
+    const favorite = await FavoriteModel.create({ user_id, product_id });
+    res.send(favorite);
+});
+
+// Xóa sản phẩm khỏi danh sách yêu thích
+router.delete('/favorite/remove', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, product_id } = req.body;
+
+    if (!user_id || !product_id) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    await FavoriteModel.deleteOne({ user_id, product_id });
+    res.send({ message: 'Đã xóa khỏi danh sách yêu thích' });
+});
+
+
+// ------------------ Address ------------------
+// Lấy địa chỉ 
+router.get('/address/:user_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const addresses = await AddressModel.find({ user_id: req.params.user_id });
+    res.send(addresses);
+});
+
+// Thêm địa chỉ mới
+router.post('/address/add', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, name, phone, city, ward, street } = req.body;
+
+    if (!user_id || !name || !phone || !city || !ward || !street) {
+        return res.status(400).send({ message: 'Thiếu thông tin' });
+    }
+
+    const newAddress = await AddressModel.create({
+        user_id,
+        name,
+        phone,
+        city,
+        ward,
+        street
+    });
+
+    res.send(newAddress);
+});
+
+// Xóa địa chỉ
+router.delete('/address/remove/:address_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    await AddressModel.findByIdAndDelete(req.params.address_id);
+    res.send({ message: 'Đã xóa địa chỉ' });
+});
+
+// Cập nhập địa chỉ
+router.put('/address/update/:address_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const updated = await AddressModel.findByIdAndUpdate(req.params.address_id, req.body, { new: true });
+    res.send(updated);
+});
+
+// Đặt địa chỉ default
+router.put('/address/set-default', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, address_id } = req.body;
+
+    if (!user_id || !address_id) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    await AddressModel.updateMany({ user_id }, { is_default: false });
+    await AddressModel.findByIdAndUpdate(address_id, { is_default: true });
+
+    res.send({ message: 'Đã cập nhật địa chỉ mặc định' });
+});
+
+
+// ------------------ Payment ------------------
+// Lấy tài khoản ngân hàng 
+router.get('/bank/:user_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const banks = await BankModel.find({ user_id: req.params.user_id });
+    res.send(banks);
+});
+
+// Thêm tài khoản mới
+router.post('/bank/add', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, card_number, card_holder, expiry_date } = req.body;
+
+    if (!user_id || !card_number || !card_holder || !expiry_date) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    const newBank = await BankModel.create({ user_id, card_number, card_holder, expiry_date });
+    res.send(newBank);
+});
+
+
+// Xóa tài khoản
+router.delete('/bank/remove/:id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    await BankModel.findByIdAndDelete(req.params.id);
+    res.send({ message: 'Đã xóa tài khoản ngân hàng' });
+});
+
+
+// Cập nhập tài khoản
+router.put('/bank/update/:id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { card_number, card_holder, expiry_date } = req.body;
+
+    if (!card_number || !card_holder || !expiry_date) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu cập nhật' });
+    }
+
+    const updatedBank = await BankModel.findByIdAndUpdate(
+        req.params.id,
+        { card_number, card_holder, expiry_date },
+        { new: true }
+    );
+
+    res.send(updatedBank);
+});
+
+// Đặt tài khoản default
+router.put('/bank/set-default', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const { user_id, bank_id } = req.body;
+
+    if (!user_id || !bank_id) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu' });
+    }
+
+    await BankModel.updateMany({ user_id }, { is_default: false });
+    await BankModel.findByIdAndUpdate(bank_id, { is_default: true });
+
+    res.send({ message: 'Cập nhật mặc định thành công' });
 });

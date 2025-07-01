@@ -6,7 +6,8 @@ const EatUpSchema = new mongoose.Schema({
     phone: { type: String,  default: '', required: true },
     password_hash: { type: String, required: true },
     role: { type: String, default: 'User', required: true },
-    avatar_url: { type: String, default: 'https://cdn2.fptshop.com.vn/small/avatar_trang_1_cd729c335b.jpg' }
+    avatar_url: { type: String, default: 'https://cdn2.fptshop.com.vn/small/avatar_trang_1_cd729c335b.jpg' },
+    gender: {type: String, default: 'Chưa cập nhập'}
 });
 
 const ProductSchema = new mongoose.Schema({
@@ -28,8 +29,46 @@ const CategorySchema = new mongoose.Schema({
   color: {type: String,}
 }); 
 
+const CartSchema = new mongoose.Schema({
+    user_id: { type: String, required: true },
+    items: [
+        {
+            product_id: { type: String, required: true },
+            quantity: { type: Number, default: 1 },
+        }
+    ]
+});
+
+const FavoriteSchema = new mongoose.Schema({
+    user_id: { type: String, required: true },
+    product_id: { type: String, required: true },
+});
+
+const AddressSchema = new mongoose.Schema({
+    user_id: String,
+    name: String,
+    phone: String,
+    city: String,
+    ward: String,
+    street: String,
+    is_default: { type: Boolean, default: false }
+});
+
+const BankSchema = new mongoose.Schema({
+    user_id: String,
+    card_number: String,
+    card_holder: String,
+    expiry_date: String,
+    is_default: { type: Boolean, default: false }
+});
+
+
+const FavoriteModel = mongoose.model('favorite', FavoriteSchema);
+const CartModel = mongoose.model('cart', CartSchema);
 const UserModel = mongoose.model('user', EatUpSchema);
 const ProductModel = mongoose.model('menu_item', ProductSchema);
 const CategoryModel = mongoose.model('categorie', CategorySchema);
+const AddressModel = mongoose.model('address', AddressSchema);
+const BankModel = mongoose.model('bank', BankSchema);
 
-module.exports = { UserModel, ProductModel, CategoryModel };
+module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel };
