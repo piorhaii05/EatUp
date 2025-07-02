@@ -31,9 +31,7 @@ export default function LoginScreen({ navigation }) {
     try {
       const response = await fetch(linkapi + 'login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: email,
           password_hash: password,
@@ -49,7 +47,14 @@ export default function LoginScreen({ navigation }) {
           text1: 'Đăng nhập thành công!',
         });
         await AsyncStorage.setItem('user', JSON.stringify(data.user));
-        navigation.navigate('Home');
+
+        // Phân quyền điều hướng:
+        if (data.user.role === 'Admin') {
+          navigation.navigate('HomeAdmin');
+        } else {
+          navigation.navigate('Home');
+        }
+
       } else {
         Toast.show({
           type: 'error',
@@ -65,7 +70,6 @@ export default function LoginScreen({ navigation }) {
       });
     }
   };
-
 
   return (
     <View style={styles.container}>

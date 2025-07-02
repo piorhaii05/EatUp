@@ -19,6 +19,7 @@ import { linkanh, linkapi } from '../navigation/config';
 
 export default function HomeScreen({ navigation }) {
     const [user, setUser] = useState(null);
+    const [newestItems, setNewestItems] = useState([]);
     const [search, setSearch] = useState('');
     const [categories, setCategories] = useState([]);
     const [highestRated, setHighestRated] = useState([]);
@@ -42,6 +43,7 @@ export default function HomeScreen({ navigation }) {
         fetchCategories();
         fetchHighestRated();
         fetchPopularItems();
+        fetchNewestItems();
     }, []);
 
     const fetchCategories = async () => {
@@ -54,6 +56,17 @@ export default function HomeScreen({ navigation }) {
         } catch (error) {
             console.error(error);
             setLoading(false);
+        }
+    };
+
+    const fetchNewestItems = async () => {
+        try {
+            const res = await fetch(linkapi + 'product/newest');
+            const data = await res.json();
+            const filtered = data.filter(item => item.status === true);
+            setNewestItems(filtered);
+        } catch (error) {
+            console.error(error);
         }
     };
 
@@ -212,6 +225,17 @@ export default function HomeScreen({ navigation }) {
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     data={popularItems}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => renderProduct(item)}
+                />
+
+                <View style={styles.popularRow}>
+                    <Text style={styles.sectionTitle}>Món ăn mới nhất</Text>
+                </View>
+                <FlatList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={newestItems}
                     keyExtractor={(item) => item._id}
                     renderItem={({ item }) => renderProduct(item)}
                 />

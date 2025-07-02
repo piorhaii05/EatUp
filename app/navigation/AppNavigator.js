@@ -13,6 +13,9 @@ import ProductDetail from '../comps/ProductDetail';
 import RegisterScreen from '../comps/RegisterScreen';
 import SplashScreen from '../comps/SplashScreen';
 import WelcomeScreen from '../comps/WelcomeScreen';
+import AdminAddProductScreen from '../comps/admin/AdminAddProductScreen';
+import AdminDashboardScreen from '../comps/admin/AdminDashboardScreen';
+import AdminAppNavigatorScreen from './AdminAppNavigator';
 import Bottombar from './Bottombar';
 
 const Stack = createNativeStackNavigator();
@@ -32,6 +35,9 @@ const AppNavigator = () => (
     <Stack.Screen name="AddBank" component={AddBankScreen} />
     <Stack.Screen name="EditNamePhone" component={EditNamePhoneScreen} />
     <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+    <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+    <Stack.Screen name="HomeAdmin" component={AdminAppNavigatorScreen} />
+    <Stack.Screen name="AdminAddProduct" component={AdminAddProductScreen} />
     <Stack.Screen name="ProductDetail" component={ProductDetail} options={{ title: 'Chi tiết sản phẩm' }} />
   </Stack.Navigator>
 );
