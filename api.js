@@ -5,8 +5,43 @@ const COMMON = require('./COMMON');
 
 const router = express.Router();
 
+const multer = require('multer');
+const path = require('path');
+
 module.exports = router;
 
+// Upload ảnh
+// Khởi tạo multer để lưu trữ file
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        // **Quan trọng:** Đảm bảo thư mục 'uploads' này tồn tại
+        // trong thư mục gốc của dự án backend của bạn.
+        cb(null, 'uploads/'); 
+    },
+    filename: function (req, file, cb) {
+        // Đổi tên file để tránh trùng lặp, ví dụ: timestamp + đuôi file gốc
+        // Đây sẽ là "linkanh" trong đường dẫn "uploads/linkanh.jpg" của bạn.
+        cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname)); 
+    }
+});
+
+const upload = multer({ storage: storage });
+
+// Route để xử lý tải lên ảnh
+router.post('/upload', upload.single('image'), (req, res) => {
+    // 'image' ở đây phải khớp với tên trường bạn gửi từ FormData ở frontend (`formData.append('image', ...)`).
+    if (req.file) {
+        // **Backend trả về tên file và đường dẫn tương đối (để frontend sử dụng)**
+        // Ví dụ: filename: "1678901234567-12345.jpg", url: "/uploads/1678901234567-12345.jpg"
+        res.status(200).json({ 
+            message: 'Upload thành công', 
+            filename: req.file.filename, 
+            url: `uploads/${req.file.filename}` // Đây là đường dẫn tương đối bạn muốn
+        });
+    } else {
+        res.status(400).json({ message: 'Không tìm thấy file ảnh' });
+    }
+});
 // Test
 router.get('/', (req, res) => {
     res.send('Vào API mobile');
@@ -68,8 +103,6 @@ router.post('/login', async (req, res) => {
             return res.status(401).send({ message: 'Thông tin tài khoản của bạn không chính xác!' });
         }
 
-        console.log('User sau khi đăng nhập:', user);
-
         // Trả về thông tin cần thiết, ép _id thành string, không gửi password_hash
         res.status(200).send({
             message: 'Đăng nhập thành công!',
@@ -123,15 +156,42 @@ router.get('/product', async (req, res) => {
     res.send(products);
 });
 
+// Lấy sản phẩm theo id
+router.get('/product/by-restaurant/:restaurant_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const products = await ProductModel.find({ restaurant_id: req.params.restaurant_id });
+    res.send(products);
+});
+
 // Thêm sản phẩm mới
 router.post('/product', async (req, res) => {
     await mongoose.connect(COMMON.uri);
+    const { restaurant_id, name, price } = req.body;
+
+    if (!restaurant_id || !name || !price) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu bắt buộc!' });
+    }
+
     try {
         const product = await ProductModel.create(req.body);
         res.send(product);
     } catch (err) {
         res.status(500).send(err);
     }
+});
+
+// Xóa sản phẩm
+router.delete('/product/:id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    await ProductModel.findByIdAndDelete(req.params.id);
+    res.send({ message: 'Đã xóa sản phẩm' });
+});
+
+// Sửa sản phẩm
+router.put('/product/:id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const updated = await ProductModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.send(updated);
 });
 
 // Lấy sản phẩm phổ biến theo rating giảm dần và chỉ lấy sản phẩm đang mở bán, rating > 4.5
@@ -167,7 +227,21 @@ router.get('/product/popular', async (req, res) => {
     }
 });
 
+// Sản phẩm mới nhất theo ngày thêm (giảm dần)
+router.get('/product/newest', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
 
+        const products = await ProductModel.find({ status: true })
+            .sort({ createdAt: -1 })  // Sắp xếp theo thời gian thêm mới nhất
+            .limit(10);               // Giới hạn số lượng, có thể điều chỉnh
+
+        res.send(products);
+    } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+    }
+});
 
 
 // ------------------ CATEGORY ------------------

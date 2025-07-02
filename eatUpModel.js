@@ -16,10 +16,11 @@ const ProductSchema = new mongoose.Schema({
     description: { type: String, default: '' },
     price: { type: Number, required: true },
     image_url: { type: String, default: '' },
-    status: { type: Boolean, default: false },
+    status: { type: Boolean, default: true },
     rating: { type: Number, default: 5 },
-    purchases: { type: Number, default: 0 }
-});
+    purchases: { type: Number, default: 0 },
+    category:  {type: String }
+}, { timestamps: true }); 
 
 
 const CategorySchema = new mongoose.Schema({
