@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel } = require('./eatUpModel');
+const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel } = require('./eatUpModel');
 const COMMON = require('./COMMON');
 
 const router = express.Router();
@@ -288,23 +288,26 @@ router.post('/cart/add', async (req, res) => {
     await mongoose.connect(COMMON.uri);
     const { user_id, product_id, quantity } = req.body;
 
-    if (!user_id || !product_id) {
-        return res.status(400).send({ message: 'Thiếu user_id hoặc product_id' });
+    const product = await ProductModel.findById(product_id);
+    if (!product) {
+        return res.status(404).send({ message: 'Sản phẩm không tồn tại' });
     }
+
+    const restaurant_id = product.restaurant_id;
 
     let cart = await CartModel.findOne({ user_id });
 
     if (!cart) {
         cart = await CartModel.create({
             user_id,
-            items: [{ product_id, quantity: quantity || 1 }]
+            items: [{ product_id, quantity, restaurant_id }]
         });
     } else {
-        const itemIndex = cart.items.findIndex(item => item.product_id === product_id);
-        if (itemIndex > -1) {
-            cart.items[itemIndex].quantity += (quantity || 1);
+        const existingItem = cart.items.find(item => item.product_id === product_id);
+        if (existingItem) {
+            existingItem.quantity += quantity;
         } else {
-            cart.items.push({ product_id, quantity: quantity || 1 });
+            cart.items.push({ product_id, quantity, restaurant_id });
         }
         await cart.save();
     }
@@ -353,6 +356,17 @@ router.delete('/cart/remove', async (req, res) => {
     }
 
     res.status(404).send({ message: 'Không tìm thấy giỏ hàng' });
+});
+
+router.delete('/cart/clear/:user_id', async (req, res) => {
+    try {
+        const user_id = req.params.user_id;
+        await CartModel.deleteOne({ user_id });
+        return res.json({ message: 'Đã xoá toàn bộ giỏ hàng' });
+    } catch (error) {
+        console.error('Lỗi khi xoá giỏ hàng:', error);
+        return res.status(500).json({ message: 'Lỗi server' });
+    }
 });
 
 
@@ -468,6 +482,23 @@ router.put('/address/set-default', async (req, res) => {
     res.send({ message: 'Đã cập nhật địa chỉ mặc định' });
 });
 
+// Lấy địa chỉ mặc định của user
+router.get('/address/default/:user_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const address = await AddressModel.findOne({ user_id: req.params.user_id, is_default: true });
+        if (address) {
+            res.status(200).json(address);
+        } else {
+            // Trả về 200 OK với object rỗng hoặc null nếu không tìm thấy,
+            // để frontend không báo lỗi JSON Parse, mà xử lý logic "không có địa chỉ mặc định"
+            res.status(200).json({}); 
+        }
+    } catch (error) {
+        console.error("Lỗi khi lấy địa chỉ mặc định từ DB:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy địa chỉ mặc định', error: error.message });
+    }
+});
 
 // ------------------ Payment ------------------
 // Lấy tài khoản ngân hàng 
@@ -531,3 +562,105 @@ router.put('/bank/set-default', async (req, res) => {
 
     res.send({ message: 'Cập nhật mặc định thành công' });
 });
+
+// Lấy tài khoản ngân hàng mặc định của user
+router.get('/bank/default/:user_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const bank = await BankModel.findOne({ user_id: req.params.user_id, is_default: true });
+        if (bank) {
+            res.status(200).json(bank);
+        } else {
+            // Tương tự, trả về 200 OK với object rỗng hoặc null
+            res.status(200).json({});
+        }
+    } catch (error) {
+        console.error("Lỗi khi lấy thẻ ngân hàng mặc định từ DB:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy thẻ ngân hàng mặc định', error: error.message });
+    }
+});
+
+
+// ------------------ Order ------------------
+// Thêm Đặt hàng
+router.post('/order/create', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+
+    const { user_id, items, address_id, bank_id, payment_method } = req.body;
+
+    if (!user_id || !Array.isArray(items) || items.length === 0) {
+        return res.status(400).send({ message: 'Thiếu dữ liệu đơn hàng hoặc danh sách sản phẩm trống' });
+    }
+
+    // 1. Lấy thông tin sản phẩm kèm restaurant_id
+    const detailedItems = await Promise.all(items.map(async (item) => {
+        const product = await ProductModel.findById(item.product_id);
+        if (!product) throw new Error(`Không tìm thấy sản phẩm ${item.product_id}`);
+        return {
+            product_id: item.product_id,
+            quantity: item.quantity,
+            price_at_order: item.price_at_order || product.price,
+            restaurant_id: product.restaurant_id
+        };
+    }));
+
+    // 2. Nhóm sản phẩm theo restaurant_id
+    const grouped = {};
+    for (let item of detailedItems) {
+        if (!grouped[item.restaurant_id]) grouped[item.restaurant_id] = [];
+        grouped[item.restaurant_id].push(item);
+    }
+
+    const orders = [];
+
+    // 3. Tạo đơn hàng cho từng nhà hàng
+    for (let [restaurant_id, groupItems] of Object.entries(grouped)) {
+        let total_amount = 0;
+        for (let item of groupItems) {
+            total_amount += item.price_at_order * item.quantity;
+        }
+
+        const order = await OrderModel.create({
+            user_id,
+            restaurant_id,
+            items: groupItems,
+            total_amount,
+            status: 'pending',
+            payment_method: payment_method || 'cash',
+            address_id: address_id || null,
+            bank_id: bank_id || null
+        });
+
+        orders.push(order);
+    }
+
+    res.send({ message: 'Đã tạo đơn hàng cho từng nhà hàng', orders });
+});
+
+
+// Cập nhập trạng thái thanh toán 
+router.put('/order/pay/:order_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const order = await OrderModel.findByIdAndUpdate(
+        req.params.order_id,
+        { status: 'paid' },
+        { new: true }
+    );
+
+    if (!order) {
+        return res.status(404).send({ message: 'Không tìm thấy đơn hàng' });
+    }
+
+    // Xoá giỏ hàng của user sau khi thanh toán thành công
+    await CartModel.findOneAndDelete({ user_id: order.user_id });
+
+    res.send({ message: 'Thanh toán thành công', order });
+});
+
+// Lấy đơn hàng 
+router.get('/order/user/:user_id', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const orders = await OrderModel.find({ user_id: req.params.user_id }).sort({ createdAt: -1 });
+    res.send(orders);
+});
+
