@@ -2,35 +2,117 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Toast from 'react-native-toast-message';
 import { linkanh, linkapi } from '../navigation/config';
 
 export default function ProfileScreen({ navigation }) {
     const [user, setUser] = useState(null);
     const [showGenderModal, setShowGenderModal] = useState(false);
+    const [loadingImageUpload, setLoadingImageUpload] = useState(false);
 
     useEffect(() => {
         const fetchUser = async () => {
-            const userString = await AsyncStorage.getItem('user');
-            const parsedUser = JSON.parse(userString);
-            setUser(parsedUser);
+            try {
+                const userString = await AsyncStorage.getItem('user');
+                const parsedUser = JSON.parse(userString);
+                setUser(parsedUser);
+            } catch (error) {
+                console.error("Lỗi khi lấy thông tin người dùng từ AsyncStorage:", error);
+                Toast.show({ type: 'error', text1: 'Lỗi', text2: 'Không thể tải thông tin người dùng.' });
+            }
         };
         fetchUser();
     }, []);
 
     const handlePickImage = async () => {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert('Quyền truy cập bị từ chối', 'Vui lòng cấp quyền truy cập thư viện ảnh để thay đổi ảnh đại diện.');
+            return;
+        }
+
         const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
             aspect: [1, 1],
-            quality: 0.5,
+            quality: 0.7,
         });
 
-        if (!result.canceled) {
-            console.log('Đường dẫn ảnh:', result.assets[0].uri);
-            // Sau này xử lý upload lên server tại đây nếu muốn
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+            const selectedImageUri = result.assets[0].uri;
+            console.log('Đường dẫn ảnh đã chọn:', selectedImageUri);
+            await uploadImageAndSaveProfile(selectedImageUri);
         }
     };
+
+    const uploadImageAndSaveProfile = async (imageUri) => {
+        setLoadingImageUpload(true);
+        try {
+            const formData = new FormData();
+            formData.append('image', {
+                uri: imageUri,
+                name: 'avatar.jpg',
+                type: 'image/jpeg',
+            });
+
+            const uploadRes = await fetch(`${linkapi}upload`, {
+                method: 'POST',
+                body: formData,
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+
+            if (!uploadRes.ok) {
+                const errorText = await uploadRes.text();
+                console.error("Lỗi upload ảnh:", errorText);
+                Toast.show({ type: 'error', text1: 'Tải ảnh thất bại', text2: 'Có lỗi khi tải ảnh lên server.' });
+                setLoadingImageUpload(false);
+                return;
+            }
+
+            const uploadData = await uploadRes.json();
+            console.log('Dữ liệu upload trả về:', uploadData);
+
+            let relativeAvatarUrl = ''; // Sẽ lưu đường dẫn tương đối
+            if (uploadData.url) { // Backend trả về url tương đối (ví dụ: /uploads/filename.jpg)
+                relativeAvatarUrl = uploadData.url; 
+            } else if (uploadData.filename) { // Backend chỉ trả về filename
+                relativeAvatarUrl = `/uploads/${uploadData.filename}`; 
+            } else {
+                Toast.show({ type: 'error', text1: 'Lỗi đường dẫn ảnh', text2: 'Server không trả về URL ảnh hợp lệ.' });
+                setLoadingImageUpload(false);
+                return;
+            }
+
+            // Cập nhật thông tin người dùng với avatar_url là đường dẫn tương đối
+            const res = await fetch(`${linkapi}update/${user._id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ avatar_url: relativeAvatarUrl }), // LƯU ĐƯỜNG DẪN TƯƠNG ĐỐI
+            });
+
+            if (!res.ok) {
+                const errorData = await res.json();
+                console.error("Lỗi cập nhật avatar:", errorData);
+                Toast.show({ type: 'error', text1: 'Cập nhật avatar thất bại', text2: errorData.message || 'Lỗi không xác định.' });
+                setLoadingImageUpload(false);
+                return;
+            }
+
+            const updatedUser = await res.json();
+            console.log("Người dùng đã cập nhật:", updatedUser);
+            await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+            setUser(updatedUser); // State user sẽ có avatar_url là đường dẫn tương đối
+            Toast.show({ type: 'success', text1: 'Ảnh đại diện đã được cập nhật!' });
+
+        } catch (error) {
+            console.error("Lỗi trong quá trình upload hoặc cập nhật profile:", error);
+            Toast.show({ type: 'error', text1: 'Lỗi hệ thống', text2: 'Không thể cập nhật ảnh đại diện. Vui lòng thử lại.' });
+        } finally {
+            setLoadingImageUpload(false);
+        }
+    };
+
 
     const updateGender = async (selectedGender) => {
         try {
@@ -39,13 +121,21 @@ export default function ProfileScreen({ navigation }) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ gender: selectedGender })
             });
+            
+            if (!res.ok) {
+                const errorData = await res.json();
+                Toast.show({ type: 'error', text1: 'Cập nhật thất bại', text2: errorData.message || 'Lỗi không xác định từ server.' });
+                return;
+            }
+
             const updatedUser = await res.json();
             await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
             setUser(updatedUser);
             setShowGenderModal(false);
+            Toast.show({ type: 'success', text1: 'Giới tính đã được cập nhật!' });
         } catch (error) {
-            console.error(error);
-            Alert.alert('Lỗi', 'Cập nhật thất bại');
+            console.error("Lỗi khi cập nhật giới tính:", error);
+            Toast.show({ type: 'error', text1: 'Lỗi', text2: 'Cập nhật giới tính thất bại. Vui lòng thử lại.' });
         }
     };
 
@@ -71,14 +161,20 @@ export default function ProfileScreen({ navigation }) {
                 <View style={styles.avatarContainer}>
                     <Image
                         source={
+                            // Ghép linkanh với avatar_url nếu avatar_url là đường dẫn tương đối,
+                            // hoặc sử dụng trực tiếp nếu nó đã là URL đầy đủ (ví dụ từ Google/FB login)
                             user?.avatar_url
-                                ? { uri: linkanh + user.avatar_url }
+                                ? { uri: user.avatar_url.startsWith('http') ? user.avatar_url : linkanh + user.avatar_url }
                                 : require('../../assets/images/AVT.jpg')
                         }
                         style={styles.avatar}
                     />
-                    <TouchableOpacity style={styles.changeAvatarBtn} onPress={handlePickImage}>
-                        <Feather name="edit" size={18} color="#000" />
+                    <TouchableOpacity style={styles.changeAvatarBtn} onPress={handlePickImage} disabled={loadingImageUpload}>
+                        {loadingImageUpload ? (
+                            <ActivityIndicator size="small" color="#000" />
+                        ) : (
+                            <Feather name="edit" size={18} color="#000" />
+                        )}
                     </TouchableOpacity>
                 </View>
 

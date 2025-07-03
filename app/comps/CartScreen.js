@@ -115,7 +115,7 @@ export default function CartScreen({ navigation }) {
             <View style={styles.bottomRow}>
                 <Text style={styles.totalText}>Tổng cộng:</Text>
                 <Text style={styles.totalPrice}>${totalPrice.toFixed(2)}</Text>
-                <TouchableOpacity style={styles.checkoutBtn}>
+                <TouchableOpacity style={styles.checkoutBtn} onPress={() => navigation.navigate("Checkout")}>
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>THANH TOÁN</Text>
                 </TouchableOpacity>
             </View>
