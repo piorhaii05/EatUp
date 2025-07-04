@@ -144,6 +144,19 @@ export default function HomeScreen({ navigation }) {
         </TouchableOpacity>
     );
 
+    // Xử lý tìm kiếm
+    const handleSearch = () => {
+        if (search.trim()) {
+            navigation.navigate('SearchResults', { searchTerm: search.trim() });
+            setSearch('');
+        } else {
+            Toast.show({
+                type: 'info',
+                text1: 'Vui lòng nhập từ khóa tìm kiếm!',
+            });
+        }
+    };
+
     return (
         <View style={styles.container}>
             <ScrollView showsVerticalScrollIndicator={false}>
@@ -167,6 +180,7 @@ export default function HomeScreen({ navigation }) {
                     </TouchableOpacity>
                 </View>
 
+                {/* Phần tìm kiếm đã thay đổi */}
                 <View style={styles.searchBox}>
                     <TextInput
                         placeholder="Tìm kiếm món ăn"
@@ -174,9 +188,10 @@ export default function HomeScreen({ navigation }) {
                         onChangeText={setSearch}
                         style={styles.searchInput}
                         placeholderTextColor="#999"
+                        onSubmitEditing={handleSearch}
                     />
-                    <TouchableOpacity>
-                        <Feather name="filter" size={22} color="#f55" />
+                    <TouchableOpacity onPress={handleSearch}>
+                        <Feather name="search" size={22} color="#f55" />
                     </TouchableOpacity>
                 </View>
 
@@ -240,6 +255,7 @@ export default function HomeScreen({ navigation }) {
                     renderItem={({ item }) => renderProduct(item)}
                 />
             </ScrollView>
+            <Toast />
         </View>
     );
 }

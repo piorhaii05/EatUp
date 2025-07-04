@@ -2,7 +2,17 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Alert,
+    Image,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import Toast from 'react-native-toast-message';
 import { linkapi } from '../navigation/config';
 
@@ -12,8 +22,14 @@ export default function CheckoutScreen({ navigation, route }) {
     const [defaultBank, setDefaultBank] = useState(null);
     const [cartItems, setCartItems] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [shippingMethod, setShippingMethod] = useState('standard'); // 'standard' (5$)
-    const [paymentMethod, setPaymentMethod] = useState('cod'); // 'cod' (Cash on Delivery) hoặc 'bank'
+    const [shippingMethod, setShippingMethod] = useState('standard');
+    const [paymentMethod, setPaymentMethod] = useState('cod');
+
+    const [discount, setDiscount] = useState(0);
+    const [appliedVoucherCode, setAppliedVoucherCode] = useState(null);
+    const [appliedVoucherId, setAppliedVoucherId] = useState(null);
+
+    const [showSuccessModal, setShowSuccessModal] = useState(false);
 
     useFocusEffect(
         useCallback(() => {
@@ -44,7 +60,20 @@ export default function CheckoutScreen({ navigation, route }) {
                 }
             };
             fetchInitialData();
-        }, [])
+
+            if (route.params?.appliedVoucher && route.params?.discountAmount) {
+                const { appliedVoucher, discountAmount, voucherCode } = route.params;
+                setDiscount(discountAmount);
+                setAppliedVoucherCode(voucherCode);
+                setAppliedVoucherId(appliedVoucher._id);
+                navigation.setParams({ appliedVoucher: undefined, discountAmount: undefined, voucherCode: undefined });
+            } else if (route.params?.appliedVoucher === null) {
+                setDiscount(0);
+                setAppliedVoucherCode(null);
+                setAppliedVoucherId(null);
+                navigation.setParams({ appliedVoucher: undefined, discountAmount: undefined, voucherCode: undefined });
+            }
+        }, [route.params])
     );
 
     const fetchDefaultAddress = async (id) => {
@@ -106,30 +135,36 @@ export default function CheckoutScreen({ navigation, route }) {
     };
 
     const shippingFee = 5.00;
-    const discount = 0.00;
 
     const subtotal = calculateSubtotal();
-    const totalAmount = subtotal + shippingFee - discount;
+    const totalAmount = Math.max(0, subtotal + shippingFee - discount);
 
     const handleCheckout = async () => {
-        const restaurantId = cartItems[0]?.restaurant_id;
+        // Log để kiểm tra giá trị hiện tại
+        console.log("Current defaultAddress:", defaultAddress);
+        console.log("Current defaultBank:", defaultBank);
+        console.log("Current paymentMethod:", paymentMethod);
+        console.log("Cart Items Length:", cartItems.length);
+
 
         if (!userId) {
-            Toast.show({ type: 'error', text1: 'Không tìm thấy ID người dùng. Vui lòng đăng nhập lại.' });
-            return;
-        }
-        if (!defaultAddress) {
-            Toast.show({ type: 'error', text1: 'Vui lòng chọn địa chỉ nhận hàng.' });
-            return;
-        }
-        if (paymentMethod === 'bank' && !defaultBank) {
-            Toast.show({ type: 'error', text1: 'Vui lòng chọn thẻ ngân hàng hoặc phương thức COD.' });
+            Toast.show({ type: 'error', text1: 'Không tìm thấy ID người dùng.', text2: 'Vui lòng đăng nhập lại để tiếp tục.' });
             return;
         }
         if (cartItems.length === 0) {
-            Toast.show({ type: 'error', text1: 'Giỏ hàng của bạn đang trống.' });
+            Toast.show({ type: 'error', text1: 'Giỏ hàng của bạn đang trống.', text2: 'Vui lòng thêm sản phẩm vào giỏ hàng.' });
             return;
         }
+        if (!defaultAddress) {
+            Toast.show({ type: 'error', text1: 'Vui lòng chọn địa chỉ nhận hàng.', text2: 'Bạn cần một địa chỉ mặc định để tiếp tục.' });
+            return;
+        }
+        if (paymentMethod === 'bank' && !defaultBank) {
+            Toast.show({ type: 'error', text1: 'Vui lòng chọn thẻ ngân hàng.', text2: 'Hoặc đổi sang phương thức thanh toán COD.' });
+            return;
+        }
+
+        const restaurantId = cartItems[0]?.restaurant_id; // Giả định tất cả item trong giỏ hàng từ cùng một nhà hàng
 
         Alert.alert(
             'Xác nhận thanh toán',
@@ -140,7 +175,7 @@ export default function CheckoutScreen({ navigation, route }) {
                     text: 'Xác nhận',
                     onPress: async () => {
                         try {
-                            setLoading(true);
+                            setLoading(true); // Bắt đầu tải khi xác nhận
                             const orderData = {
                                 user_id: userId,
                                 restaurant_id: restaurantId,
@@ -155,6 +190,7 @@ export default function CheckoutScreen({ navigation, route }) {
                                 total_amount: totalAmount,
                                 shipping_fee: shippingFee,
                                 discount_amount: discount,
+                                voucher_id: appliedVoucherId,
                                 status: 'Pending'
                             };
 
@@ -167,23 +203,33 @@ export default function CheckoutScreen({ navigation, route }) {
                             if (!res.ok) {
                                 const errorData = await res.json();
                                 Toast.show({ type: 'error', text1: 'Đặt hàng thất bại', text2: errorData.message || 'Có lỗi xảy ra khi tạo đơn hàng.' });
-                                setLoading(false);
-                                return;
+                                return; // Dừng lại nếu có lỗi
                             }
 
-                            const result = await res.json();
-                            Toast.show({ type: 'success', text1: 'Đặt hàng thành công!', text2: 'Đơn hàng của bạn đang được xử lý.' });
-                            console.log('Order successful:', result);
-
-                            // Assuming you have a route to clear the cart for a user
                             await fetch(`${linkapi}cart/clear/${userId}`, { method: 'DELETE' });
 
-                            navigation.replace('OrderSuccess');
+                            if (appliedVoucherId) {
+                                try {
+                                    const updateVoucherRes = await fetch(`${linkapi}vouchers/increase-used-count/${appliedVoucherId}`, {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                    });
+                                    if (!updateVoucherRes.ok) {
+                                        const errorVoucherData = await updateVoucherRes.json();
+                                        console.error("Lỗi khi tăng used_count của voucher:", errorVoucherData);
+                                    }
+                                } catch (voucherError) {
+                                    console.error("Lỗi network khi cập nhật voucher:", voucherError);
+                                }
+                            }
+
+                            setShowSuccessModal(true);
+
                         } catch (error) {
                             console.error("Lỗi khi xử lý thanh toán:", error);
                             Toast.show({ type: 'error', text1: 'Lỗi hệ thống', text2: 'Không thể xử lý đơn hàng. Vui lòng thử lại.' });
                         } finally {
-                            setLoading(false);
+                            setLoading(false); // Dừng tải sau khi hoàn tất hoặc gặp lỗi
                         }
                     },
                 },
@@ -279,7 +325,8 @@ export default function CheckoutScreen({ navigation, route }) {
                                 style={styles.bankCardDisplay}
                                 onPress={() => navigation.navigate('BankList', { fromCheckout: true, selectedBankId: defaultBank?._id })}
                             >
-                                <Image source={require('../../assets/images/mastercard.png')} style={styles.bankCardIcon} /><Text style={styles.bankCardNumber}> **** **** **** {String(defaultBank.card_number).slice(-4)}</Text>
+                                <Image source={require('../../assets/images/mastercard.png')} style={styles.bankCardIcon} />
+                                <Text style={styles.bankCardNumber}> **** **** **** {String(defaultBank.card_number).slice(-4)}</Text>
 
                                 <View style={styles.editBankBtnContainer}>
                                     <Feather name="edit" size={16} color="#fff" />
@@ -291,10 +338,19 @@ export default function CheckoutScreen({ navigation, route }) {
                     </View>
                 </View>
 
-                {/* Áp dụng phiếu giảm giá */}
-                <TouchableOpacity style={styles.sectionContainer}>
+                {/* Phần áp dụng phiếu giảm giá */}
+                <TouchableOpacity
+                    style={styles.sectionContainer}
+                    onPress={() => navigation.navigate('Voucher', { orderTotal: subtotal })}
+                >
                     <View style={styles.sectionHeader}>
-                        <Feather name="tag" size={20} color="#f55" /><Text style={styles.sectionTitle}> Áp dụng phiếu giảm giá</Text><Text style={styles.discountCount}>0 Phiếu giảm giá</Text>
+                        <Feather name="tag" size={20} color="#f55" />
+                        <Text style={styles.sectionTitle}> Áp dụng phiếu giảm giá</Text>
+                        {appliedVoucherCode ? (
+                            <Text style={styles.discountCount}>{appliedVoucherCode}</Text>
+                        ) : (
+                            <Text style={styles.discountCount}>Chọn Voucher</Text>
+                        )}
                         <Feather name="chevron-right" size={20} color="#888" style={{ marginLeft: 5 }} />
                     </View>
                 </TouchableOpacity>
@@ -317,10 +373,12 @@ export default function CheckoutScreen({ navigation, route }) {
                         <Text style={styles.summaryLabel}>Phí vận chuyển:</Text>
                         <Text style={styles.summaryValue}>${shippingFee.toFixed(2)}</Text>
                     </View>
-                    <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Giảm giá:</Text>
-                        <Text style={styles.summaryValue}>-${discount.toFixed(2)}</Text>
-                    </View>
+                    {discount > 0 && (
+                        <View style={styles.summaryRow}>
+                            <Text style={styles.summaryLabel}>Giảm giá Voucher:</Text>
+                            <Text style={[styles.summaryValue, { color: '#f55' }]}>-${discount.toFixed(2)}</Text>
+                        </View>
+                    )}
                     <View style={styles.totalRow}>
                         <Text style={styles.totalLabel}>Tổng thanh toán:</Text>
                         <Text style={styles.finalTotalPrice}>${totalAmount.toFixed(2)}</Text>
@@ -330,13 +388,54 @@ export default function CheckoutScreen({ navigation, route }) {
             </ScrollView>
 
             {/* Nút THANH TOÁN cuối màn hình */}
-            <TouchableOpacity style={styles.checkoutButton} onPress={handleCheckout} disabled={loading}>
+            <TouchableOpacity
+                style={styles.checkoutButton}
+                onPress={handleCheckout}
+                disabled={loading} // Chỉ vô hiệu hóa khi đang tải dữ liệu
+            >
                 {loading ? (
                     <ActivityIndicator color="#fff" />
                 ) : (
                     <Text style={styles.checkoutButtonText}>THANH TOÁN</Text>
                 )}
             </TouchableOpacity>
+
+            {/* SUCCESS MODAL */}
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={showSuccessModal}
+                onRequestClose={() => setShowSuccessModal(false)}
+            >
+                <View style={modalStyles.centeredView}>
+                    <View style={modalStyles.successModalView}>
+                        <Image
+                            source={require('../../assets/images/tick.png')}
+                            style={modalStyles.successIcon}
+                        />
+                        <Text style={modalStyles.successTitle}>Đặt hàng thành công</Text>
+                        <TouchableOpacity
+                            style={modalStyles.successButtonPrimary}
+                            onPress={() => {
+                                setShowSuccessModal(false);
+                                navigation.replace('HistoryOrders');
+                            }}
+                        >
+                            <Text style={modalStyles.successButtonTextPrimary}>XEM CHI TIẾT ĐƠN HÀNG</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={modalStyles.successButtonSecondary}
+                            onPress={() => {
+                                setShowSuccessModal(false);
+                                navigation.replace('Home');
+                            }}
+                        >
+                        <Text style={modalStyles.successButtonTextSecondary}>VỀ TRANG CHỦ</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+            <Toast />
         </View>
     );
 }
@@ -344,14 +443,11 @@ export default function CheckoutScreen({ navigation, route }) {
 const styles = StyleSheet.create({
     container: { flex: 1, padding: 5, paddingTop: 50, backgroundColor: '#fff' },
     header: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
-
     backBtn: { padding: 5, marginRight: 10, paddingLeft: 15 },
-
     backButton: {
         marginRight: 15,
     },
     headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#000' },
-
     scrollViewContent: {
         padding: 15,
         paddingBottom: 100,
@@ -445,7 +541,6 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
         color: '#f55',
     },
-    // Thay đổi từ paymentOption sang paymentMethodRow cho hàng chứa radio và text
     paymentMethodRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -453,7 +548,6 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: '#eee',
         marginTop: 5,
-        // Loại bỏ flexWrap ở đây để nó chỉ áp dụng cho dòng này
     },
     paymentMethodText: {
         fontSize: 15,
@@ -467,11 +561,9 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         paddingVertical: 8,
         paddingHorizontal: 12,
-        // Đẩy sang phải và thêm khoảng cách top
         marginLeft: 'auto',
-        marginTop: 10, // Thêm margin-top để đẩy xuống dưới
-        // flex: 1, // Để nó có thể co giãn
-        maxWidth: '60%', // Giới hạn chiều rộng để không tràn ra ngoài
+        marginTop: 10,
+        maxWidth: '60%',
     },
     bankCardIcon: {
         width: 25,
@@ -484,20 +576,21 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontWeight: 'bold',
     },
-    editBankBtnContainer: { // Thay đổi từ editBankBtn để chứa icon, không phải TouchableOpacity
+    editBankBtnContainer: {
         marginLeft: 5,
     },
     noDataTextBank: {
         fontSize: 14,
         color: '#888',
         fontStyle: 'italic',
-        marginLeft: 35, // căn chỉnh với radio button
-        marginTop: 5, // Đẩy xuống dưới một chút
+        marginLeft: 35,
+        marginTop: 5,
     },
     discountCount: {
         marginLeft: 'auto',
         fontSize: 14,
         color: '#555',
+        fontWeight: 'bold',
     },
     itemCount: {
         marginLeft: 'auto',
@@ -573,5 +666,131 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         backgroundColor: '#f8f8f8',
+    },
+});
+
+const modalStyles = StyleSheet.create({
+    centeredView: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    },
+    modalView: {
+        margin: 20,
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 35,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 5,
+        width: '80%',
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginBottom: 20,
+        textAlign: 'center',
+    },
+    qrCodeImage: {
+        width: 200,
+        height: 200,
+        marginBottom: 20,
+        resizeMode: 'contain',
+    },
+    qrInstructions: {
+        textAlign: 'center',
+        marginBottom: 20,
+        fontSize: 14,
+        color: '#555',
+    },
+    buttonConfirmPayment: {
+        backgroundColor: '#f55',
+        borderRadius: 10,
+        padding: 15,
+        elevation: 2,
+        width: '100%',
+        marginBottom: 10,
+    },
+    buttonCancel: {
+        backgroundColor: '#ccc',
+        borderRadius: 10,
+        padding: 15,
+        elevation: 2,
+        width: '100%',
+    },
+    buttonText: {
+        color: 'white',
+        fontWeight: 'bold',
+        textAlign: 'center',
+        fontSize: 16,
+    },
+    buttonTextCancel: {
+        color: '#333',
+        fontWeight: 'bold',
+        textAlign: 'center',
+        fontSize: 16,
+    },
+    successModalView: {
+        margin: 20,
+        backgroundColor: 'white',
+        borderRadius: 20,
+        padding: 35,
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: {
+            width: 0,
+            height: 2,
+        },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+        elevation: 5,
+        width: '80%',
+    },
+    successIcon: {
+        width: 80,
+        height: 80,
+        marginBottom: 20,
+    },
+    successTitle: {
+        fontSize: 22,
+        fontWeight: 'bold',
+        marginBottom: 20,
+        color: '#333',
+    },
+    successButtonPrimary: {
+        backgroundColor: '#f55',
+        borderRadius: 10,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        elevation: 2,
+        width: '100%',
+        marginBottom: 10,
+    },
+    successButtonTextPrimary: {
+        color: 'white',
+        fontWeight: 'bold',
+        textAlign: 'center',
+        fontSize: 16,
+    },
+    successButtonSecondary: {
+        backgroundColor: '#f0f0f0',
+        borderRadius: 10,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        elevation: 2,
+        width: '100%',
+    },
+    successButtonTextSecondary: {
+        color: '#333',
+        fontWeight: 'bold',
+        textAlign: 'center',
+        fontSize: 16,
     },
 });

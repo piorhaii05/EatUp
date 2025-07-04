@@ -9,11 +9,15 @@ import ChangePasswordScreen from '../comps/ChangePasswordScreen';
 import CheckoutScreen from '../comps/CheckoutScreen';
 import EditAddressScreen from '../comps/EditAddressScreen';
 import EditNamePhoneScreen from '../comps/EditNamePhoneScreen';
+import HistoryOrdersScreen from '../comps/HistoryOrdersScreen';
 import LoginScreen from '../comps/LoginScreen';
-import OrderSuccessScreen from '../comps/OrderSuccessScreen';
+import OrderDetailsScreen from '../comps/OrderDetailsScreen';
 import ProductDetail from '../comps/ProductDetail';
 import RegisterScreen from '../comps/RegisterScreen';
+import SearchResultsScreen from '../comps/SearchResultsScreen';
 import SplashScreen from '../comps/SplashScreen';
+import VoucherListScreen from '../comps/VoucherListScreen';
+import VoucherScreen from '../comps/VoucherScreen';
 import WelcomeScreen from '../comps/WelcomeScreen';
 import AdminAddProductScreen from '../comps/admin/AdminAddProductScreen';
 import AdminDashboardScreen from '../comps/admin/AdminDashboardScreen';
@@ -41,7 +45,11 @@ const AppNavigator = () => (
     <Stack.Screen name="HomeAdmin" component={AdminAppNavigatorScreen} />
     <Stack.Screen name="AdminAddProduct" component={AdminAddProductScreen} />
     <Stack.Screen name="Checkout" component={CheckoutScreen} />
-    <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} />
+    <Stack.Screen name="HistoryOrders" component={HistoryOrdersScreen} />
+    <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
+    <Stack.Screen name="Voucher" component={VoucherScreen} />
+    <Stack.Screen name="VoucherList" component={VoucherListScreen} />
+    <Stack.Screen name="SearchResults" component={SearchResultsScreen} />
     <Stack.Screen name="ProductDetail" component={ProductDetail} options={{ title: 'Chi tiết sản phẩm' }} />
   </Stack.Navigator>
 );

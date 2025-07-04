@@ -2,12 +2,11 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import {
-    Alert,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { linkapi } from '../navigation/config';
@@ -29,8 +28,30 @@ export default function EditNamePhoneScreen({ navigation }) {
     }, []);
 
     const handleSave = async () => {
-        if (!name.trim() || !phone.trim()) {
-            Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ thông tin');
+        if (!name.trim()) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi',
+                text2: 'Vui lòng nhập họ và tên.',
+            });
+            return;
+        }
+        if (!phone.trim()) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi',
+                text2: 'Vui lòng nhập số điện thoại.',
+            });
+            return;
+        }
+
+        const phoneRegex = /^\d{10}$/;
+        if (!phoneRegex.test(phone)) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi định dạng',
+                text2: 'Số điện thoại không hợp lệ. Vui lòng nhập đủ 10 chữ số.',
+            });
             return;
         }
 
@@ -41,18 +62,46 @@ export default function EditNamePhoneScreen({ navigation }) {
                 body: JSON.stringify({ name, phone }),
             });
 
-            const updatedUser = await res.json();
-            await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-
-            Toast.show({
-                type: 'success',
-                text1: 'Cập nhật thành công!',
-            });
-
-            navigation.goBack();
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                const updatedUser = await res.json();
+                if (res.ok) {
+                    await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+                    Toast.show({
+                        type: 'success',
+                        text1: 'Cập nhật thành công!',
+                    });
+                    
+                    // <-- THAY ĐỔI TẠI ĐÂY -->
+                    // Thay vì chỉ goBack(), truyền tham số `shouldRefresh` về màn hình trước
+                    // Điều này sẽ kích hoạt useEffect của ProfileScreen nếu nó lắng nghe params
+                    navigation.navigate('Home', { shouldRefresh: true }); 
+                    // Hoặc đơn giản là navigation.goBack() nếu ProfileScreen vẫn dùng useFocusEffect
+                    // Nếu bạn chỉ muốn cập nhật khi có thay đổi từ màn hình này,
+                    // thì ProfileScreen nên dùng useFocusEffect, và EditNamePhoneScreen chỉ cần goBack().
+                    // Nhưng nếu bạn muốn kích hoạt cụ thể, dùng navigate kèm params.
+                } else {
+                    throw new Error(updatedUser.message || `Server responded with status ${res.status}`);
+                }
+            } else {
+                const textResponse = await res.text();
+                if (!res.ok) {
+                    throw new Error(`Server error: ${res.status} - ${textResponse}`);
+                }
+                console.warn("Server response was not JSON but status OK:", textResponse);
+                Toast.show({
+                    type: 'success',
+                    text1: 'Cập nhật thành công (có thể có lỗi phản hồi dữ liệu).',
+                });
+                navigation.navigate('Profile', { shouldRefresh: true }); // Vẫn truyền tham số refresh
+            }
         } catch (error) {
-            console.error(error);
-            Alert.alert('Lỗi', 'Cập nhật thất bại');
+            console.error("Lỗi khi cập nhật thông tin:", error);
+            Toast.show({
+                type: 'error',
+                text1: 'Cập nhật thất bại',
+                text2: error.message || 'Có lỗi xảy ra, vui lòng thử lại.',
+            });
         }
     };
 
@@ -79,16 +128,17 @@ export default function EditNamePhoneScreen({ navigation }) {
                     placeholder="Số điện thoại"
                     style={styles.input}
                     value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                    maxLength={15}
+                    onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ''))}
+                    keyboardType="numeric"
+                    maxLength={10}
                 />
-                <Text style={styles.counter}>{phone.length}/15</Text>
+                <Text style={styles.counter}>{phone.length}/10</Text>
             </View>
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
                 <Text style={styles.saveText}>LƯU</Text>
             </TouchableOpacity>
+            <Toast />
         </View>
     );
 }
