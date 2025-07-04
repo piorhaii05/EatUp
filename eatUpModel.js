@@ -65,23 +65,43 @@ const BankSchema = new mongoose.Schema({
 });
 
 const OrderItemSchema = new mongoose.Schema({
-    product_id: String,
-    quantity: Number,
-    price: Number
+    product_id: { type: mongoose.Schema.Types.ObjectId, ref: 'menu_item' }, // Sử dụng ObjectId và ref để populate nếu cần sau này
+    product_name: { type: String, required: true }, // THÊM DÒNG NÀY
+    product_image: { type: String }, // THÊM DÒNG NÀY
+    quantity: { type: Number, required: true },
+    price: { type: Number, required: true } // Giá tại thời điểm đặt hàng
 });
 
 const OrderSchema = new mongoose.Schema({
-    user_id: String,
-    restaurant_id: String,
+    user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
+    restaurant_id: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true }, // Giả sử restaurant_id cũng là user (nhà hàng)
     items: [OrderItemSchema],
-    total_amount: Number,
-    status: { type: String, default: 'pending' }, // pending, paid, canceled
-    createdAt: { type: Date, default: Date.now },
-    payment_method: String,
-    address_id: String,
-    bank_id: String
-});
+    total_amount: { type: Number, required: true },
+    status: { type: String, enum: ['Pending', 'Processing', 'Delivered', 'Cancelled'], default: 'Pending' },
+    payment_method: { type: String, enum: ['COD', 'Bank Transfer'], required: true },
+    // ĐẢM BẢO CÓ 'ref' TRỎ ĐÚNG ĐẾN TÊN MODEL CỦA CON
+    address_id: { type: mongoose.Schema.Types.ObjectId, ref: 'address', default: null }, // <-- 'Address' là tên model địa chỉ của con
+    bank_id: { type: mongoose.Schema.Types.ObjectId, ref: 'bank', default: null },       // <-- 'Bank' là tên model ngân hàng của con
+    shipping_fee: { type: Number, default: 0 },
+    discount_amount: { type: Number, default: 0 },
+    transaction_id: { type: String, required: false },
+}, { timestamps: true });
 
+
+const VoucherSchema = new mongoose.Schema({
+    code: {type: String,required: true,unique: true,trim: true,uppercase: true},
+    description: {type: String,required: true,trim: true},
+    discount_type: { type: String,enum: ['percentage', 'fixed'],required: true},
+    discount_value: {type: Number,required: true,min: 0},
+    min_order_amount: {type: Number,default: 0},
+    max_discount_amount: {type: Number,default: null},
+    start_date: { type: Date, required: true},
+    end_date: { type: Date,required: true},
+    usage_limit: { type: Number,default: null},
+    used_count: {type: Number,default: 0},
+    user_specific: {type: Boolean,default: false}, 
+    active: {type: Boolean,default: true}
+}, { timestamps: true });
 
 const FavoriteModel = mongoose.model('favorite', FavoriteSchema);
 const CartModel = mongoose.model('cart', CartSchema);
@@ -91,5 +111,6 @@ const CategoryModel = mongoose.model('categorie', CategorySchema);
 const AddressModel = mongoose.model('address', AddressSchema);
 const BankModel = mongoose.model('bank', BankSchema);
 const OrderModel = mongoose.model('order', OrderSchema);
+const VoucherModel = mongoose.model('voucher', VoucherSchema);
 
-module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel };
+module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel };

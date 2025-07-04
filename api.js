@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel } = require('./eatUpModel');
+const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel } = require('./eatUpModel');
 const COMMON = require('./COMMON');
 
 const router = express.Router();
@@ -243,6 +243,30 @@ router.get('/product/newest', async (req, res) => {
     }
 });
 
+router.get('/product/search', async (req, res) => {
+    console.log('Received search request');
+    const { name } = req.query;
+    console.log('Search query:', name); // Kiểm tra xem `name` có nhận được không
+
+    if (!name) {
+        console.log('No search name provided, returning 400.');
+        return res.status(400).json({ message: 'Vui lòng cung cấp từ khóa tìm kiếm (name).' });
+    }
+
+    try {
+        // Kiểm tra xem Product model có được import đúng không
+        // console.log('Product model:', Product); 
+        const products = await ProductModel.find({
+            name: { $regex: name, $options: 'i' },
+            status: true
+        });
+        console.log('Found products:', products.length);
+        res.json(products);
+    } catch (err) {
+        console.error("Error in product search:", err); // In lỗi chi tiết
+        res.status(500).json({ message: 'Lỗi server khi tìm kiếm sản phẩm.' });
+    }
+});
 
 // ------------------ CATEGORY ------------------
 
@@ -586,25 +610,27 @@ router.get('/bank/default/:user_id', async (req, res) => {
 router.post('/order/create', async (req, res) => {
     await mongoose.connect(COMMON.uri);
 
-    const { user_id, items, address_id, bank_id, payment_method } = req.body;
+    const { user_id, items, address_id, bank_id, payment_method, shipping_fee, discount_amount } = req.body; // THÊM shipping_fee và discount_amount từ frontend
 
     if (!user_id || !Array.isArray(items) || items.length === 0) {
         return res.status(400).send({ message: 'Thiếu dữ liệu đơn hàng hoặc danh sách sản phẩm trống' });
     }
 
-    // 1. Lấy thông tin sản phẩm kèm restaurant_id
+    // Lấy thông tin sản phẩm kèm restaurant_id, name, image_url
     const detailedItems = await Promise.all(items.map(async (item) => {
         const product = await ProductModel.findById(item.product_id);
         if (!product) throw new Error(`Không tìm thấy sản phẩm ${item.product_id}`);
         return {
             product_id: item.product_id,
+            product_name: product.name, // LẤY TÊN SẢN PHẨM TỪ DB
+            product_image: product.image_url, // LẤY HÌNH ẢNH SẢN PHẨM TỪ DB
             quantity: item.quantity,
-            price_at_order: item.price_at_order || product.price,
-            restaurant_id: product.restaurant_id
+            price: item.price_at_order || product.price, // Dùng price_at_order nếu có, không thì dùng giá hiện tại
+            restaurant_id: product.restaurant_id // Lấy restaurant_id từ sản phẩm
         };
     }));
 
-    // 2. Nhóm sản phẩm theo restaurant_id
+    // Nhóm sản phẩm theo restaurant_id
     const grouped = {};
     for (let item of detailedItems) {
         if (!grouped[item.restaurant_id]) grouped[item.restaurant_id] = [];
@@ -613,28 +639,43 @@ router.post('/order/create', async (req, res) => {
 
     const orders = [];
 
-    // 3. Tạo đơn hàng cho từng nhà hàng
+    // Tạo đơn hàng cho từng nhà hàng
     for (let [restaurant_id, groupItems] of Object.entries(grouped)) {
-        let total_amount = 0;
+        let total_amount_for_restaurant = 0;
         for (let item of groupItems) {
-            total_amount += item.price_at_order * item.quantity;
+            total_amount_for_restaurant += item.price * item.quantity;
         }
+
+        // THÊM phí vận chuyển và giảm giá nếu bạn muốn áp dụng cho từng đơn hàng theo nhà hàng
+        // Hoặc bạn có thể áp dụng tổng phí/giảm giá ở frontend và chỉ lưu tổng cuối cùng
+        // Hiện tại, ta sẽ giả định tổng tiền đã bao gồm phí vận chuyển và giảm giá từ frontend
+        // Nếu không, bạn cần tính toán lại ở đây
+        const final_total_amount = total_amount_for_restaurant + (shipping_fee || 0) - (discount_amount || 0);
+
 
         const order = await OrderModel.create({
             user_id,
             restaurant_id,
-            items: groupItems,
-            total_amount,
-            status: 'pending',
-            payment_method: payment_method || 'cash',
+            items: groupItems.map(item => ({ // Chỉ lưu các trường cần thiết trong OrderItemSchema
+                product_id: item.product_id,
+                product_name: item.product_name,
+                product_image: item.product_image,
+                quantity: item.quantity,
+                price: item.price,
+            })),
+            total_amount: final_total_amount, // Sử dụng tổng tiền đã tính
+            status: 'Pending', // Đặt trạng thái ban đầu là 'Pending' hoặc 'Processing'
+            payment_method: payment_method || 'COD', // Đặt mặc định là 'COD'
             address_id: address_id || null,
-            bank_id: bank_id || null
+            bank_id: bank_id || null,
+            shipping_fee: shipping_fee || 0, // Lưu shipping_fee
+            discount_amount: discount_amount || 0, // Lưu discount_amount
         });
 
         orders.push(order);
     }
 
-    res.send({ message: 'Đã tạo đơn hàng cho từng nhà hàng', orders });
+    res.send({ message: 'Đã tạo đơn hàng cho từng nhà hàng thành công', orders });
 });
 
 
@@ -657,10 +698,219 @@ router.put('/order/pay/:order_id', async (req, res) => {
     res.send({ message: 'Thanh toán thành công', order });
 });
 
-// Lấy đơn hàng 
+// Cập nhật router.get('/order/user/:user_id')
 router.get('/order/user/:user_id', async (req, res) => {
     await mongoose.connect(COMMON.uri);
-    const orders = await OrderModel.find({ user_id: req.params.user_id }).sort({ createdAt: -1 });
+    const { user_id } = req.params;
+    const { status } = req.query; // Lấy trạng thái từ query (e.g., /order/user/abc?status=Pending)
+
+    let query = { user_id: user_id };
+    if (status) {
+        query.status = status;
+    }
+
+    // THÊM POPULATE VÀO ĐÂY ĐỂ LẤY THÔNG TIN ĐỊA CHỈ VÀ NGÂN HÀNG KHI LẤY DANH SÁCH ORDER
+    const orders = await OrderModel.find(query)
+        .populate('address_id') // Populate thông tin địa chỉ
+        .populate('bank_id')    // Populate thông tin ngân hàng
+        .sort({ createdAt: -1 })
+        .lean(); // Luôn dùng .lean() khi chỉ đọc dữ liệu để hiệu suất tốt hơn
+
+    // Thêm log để kiểm tra:
+    console.log("Orders fetched for user with populate:", orders);
+
     res.send(orders);
 });
 
+// Giữ nguyên route chi tiết order này (vì nó đã đúng logic populate)
+router.get('/order/:order_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const orderId = req.params.order_id;
+
+        // console.log(`Đang tìm đơn hàng với ID: ${orderId}`);
+        const order = await OrderModel.findById(orderId)
+            .populate('address_id')
+            .populate('bank_id')
+            .lean();
+
+        console.log("Kết quả Populate order:", order);
+
+        if (!order) {
+            console.log(`Không tìm thấy đơn hàng với ID: ${orderId}`);
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+        }
+
+        res.status(200).json(order);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy chi tiết đơn hàng:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy chi tiết đơn hàng', error: error.message });
+    }
+});
+
+router.put('/order/cancel/:order_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const orderId = req.params.order_id;
+
+        console.log(`Yêu cầu hủy đơn hàng với ID: ${orderId}`);
+
+        // Tìm đơn hàng theo ID
+        const order = await OrderModel.findById(orderId);
+
+        if (!order) {
+            console.log(`Không tìm thấy đơn hàng với ID: ${orderId} để hủy.`);
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng' });
+        }
+
+        // Kiểm tra trạng thái đơn hàng: Chỉ cho phép hủy nếu trạng thái là 'Pending'
+        if (order.status !== 'Pending') {
+            console.log(`Không thể hủy đơn hàng ${orderId}. Trạng thái hiện tại: '${order.status}'.`);
+            return res.status(400).json({ message: `Không thể hủy đơn hàng có trạng thái '${order.status}'. Chỉ đơn hàng 'Pending' mới có thể hủy.` });
+        }
+
+        // Cập nhật trạng thái của đơn hàng thành 'Cancelled'
+        order.status = 'Cancelled';
+        await order.save();
+
+        console.log(`Đơn hàng ${orderId} đã được hủy thành công.`);
+        res.status(200).json({ message: 'Đơn hàng đã được hủy thành công', order: order });
+
+    } catch (error) {
+        console.error("Lỗi khi hủy đơn hàng:", error);
+        res.status(500).json({ message: 'Lỗi server khi hủy đơn hàng', error: error.message });
+    } finally {
+        // mongoose.connection.close();
+    }
+});
+
+// =========================================================
+//                  VOUCHER ROUTES
+// =========================================================
+
+// Route 1: Lấy tất cả voucher đang hoạt động và còn hiệu lực
+// Có thể thêm query param để lọc voucher khả dụng cho user cụ thể sau này
+router.get('/vouchers', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+
+        const now = new Date();
+        const availableVouchers = await VoucherModel.find({
+            active: true,
+            start_date: { $lte: now },
+            end_date: { $gte: now },
+            $or: [
+                { usage_limit: { $eq: null } }, // Voucher không có giới hạn sử dụng
+                // Điều kiện mới: usage_limit không phải null VÀ used_count < usage_limit
+                {
+                    // Đây là object cho trường hợp có giới hạn sử dụng và chưa dùng hết
+                    usage_limit: { $ne: null },
+                    $expr: { $lt: ['$used_count', '$usage_limit'] }
+                }
+            ]
+        }).sort({ end_date: 1 });
+
+        res.status(200).json(availableVouchers);
+
+    } catch (error) {
+        console.error("Lỗi CHI TIẾT khi tải danh sách voucher:", error);
+        res.status(500).json({ message: 'Lỗi server khi tải danh sách voucher', error: error.message });
+    }
+});
+
+// Route 2: Lấy voucher theo ID (nếu cần xem chi tiết voucher nào đó)
+router.get('/vouchers/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const voucher = await VoucherModel.findById(req.params.id);
+
+        if (!voucher) {
+            return res.status(404).json({ message: 'Không tìm thấy voucher' });
+        }
+        res.status(200).json(voucher);
+    } catch (error) {
+        console.error("Lỗi khi lấy voucher theo ID:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy voucher', error: error.message });
+    }
+});
+
+// Route 3: Áp dụng/Kiểm tra tính hợp lệ của voucher (quan trọng cho màn thanh toán)
+// Body: { code: "VOUCHERCODE", userId: "someUserId", totalAmount: 150 }
+router.post('/vouchers/apply', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const { code, userId, totalAmount } = req.body;
+
+        if (!code || !userId || totalAmount === undefined) {
+            return res.status(400).json({ message: 'Thiếu thông tin cần thiết (code, userId, totalAmount).' });
+        }
+
+        const now = new Date();
+        const voucher = await VoucherModel.findOne({ code: code.toUpperCase() });
+
+        if (!voucher) {
+            return res.status(404).json({ message: 'Mã voucher không tồn tại.' });
+        }
+
+        if (!voucher.active) {
+            return res.status(400).json({ message: 'Mã voucher này không còn hiệu lực.' });
+        }
+
+        if (now < voucher.start_date || now > voucher.end_date) {
+            return res.status(400).json({ message: 'Mã voucher này chưa đến thời gian áp dụng hoặc đã hết hạn.' });
+        }
+
+        if (voucher.usage_limit !== null && voucher.used_count >= voucher.usage_limit) {
+            return res.status(400).json({ message: 'Mã voucher này đã hết lượt sử dụng.' });
+        }
+
+        if (totalAmount < voucher.min_order_amount) {
+            return res.status(400).json({ message: `Đơn hàng tối thiểu để áp dụng voucher là ${voucher.min_order_amount}$.` });
+        }
+
+        let discountAmount = 0;
+        if (voucher.discount_type === 'percentage') {
+            discountAmount = totalAmount * (voucher.discount_value / 100);
+            if (voucher.max_discount_amount !== null && discountAmount > voucher.max_discount_amount) {
+                discountAmount = voucher.max_discount_amount;
+            }
+        } else if (voucher.discount_type === 'fixed') {
+            discountAmount = voucher.discount_value;
+        }
+
+        // Trả về thông tin voucher và số tiền giảm giá
+        res.status(200).json({
+            message: 'Voucher hợp lệ!',
+            voucher: voucher,
+            discount_amount: discountAmount,
+            final_amount: totalAmount - discountAmount
+        });
+
+    } catch (error) {
+        console.error("Lỗi khi áp dụng voucher:", error);
+        res.status(500).json({ message: 'Lỗi server khi áp dụng voucher', error: error.message });
+    } finally {
+        // mongoose.connection.close();
+    }
+});
+
+
+router.put('/vouchers/increase-used-count/:id', async (req, res) => {
+  try {
+    const voucherId = req.params.id;
+    const voucher = await VoucherModel.findById(voucherId); // Tìm voucher bằng ID
+
+    if (!voucher) {
+      return res.status(404).json({ message: 'Voucher không tìm thấy.' });
+    }
+
+    voucher.used_count += 1; // Tăng used_count lên 1
+    await voucher.save(); // Lưu thay đổi vào cơ sở dữ liệu
+
+    res.status(200).json({ message: 'Used count đã được cập nhật thành công.', voucher });
+  } catch (error) {
+    console.error('Lỗi khi cập nhật used_count của voucher:', error);
+    res.status(500).json({ message: 'Lỗi server khi cập nhật voucher.' });
+  }
+});
