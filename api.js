@@ -163,6 +163,7 @@ router.get('/product/by-restaurant/:restaurant_id', async (req, res) => {
     res.send(products);
 });
 
+
 // Thêm sản phẩm mới
 router.post('/product', async (req, res) => {
     await mongoose.connect(COMMON.uri);
@@ -209,6 +210,26 @@ router.get('/product/highest-rated', async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).send({ message: 'Lỗi server!', error: error.message });
+    }
+});
+
+router.get('/admin/product/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri); // Đảm bảo kết nối MongoDB
+        const product = await ProductModel.findById(req.params.id);
+
+        if (!product) {
+            // Nếu không tìm thấy sản phẩm, trả về 404 với JSON
+            return res.status(404).json({ message: 'Không tìm thấy sản phẩm.' }); // <-- Sử dụng .json()
+        }
+
+        // Nếu tìm thấy, trả về sản phẩm dưới dạng JSON
+        res.json(product); // <-- Sử dụng .json()
+
+    } catch (error) {
+        console.error("Lỗi khi lấy sản phẩm theo ID:", error);
+        // Trả về lỗi server 500 với JSON
+        res.status(500).json({ message: 'Lỗi server khi lấy chi tiết sản phẩm.', error: error.message }); // <-- Sử dụng .json()
     }
 });
 
@@ -608,74 +629,135 @@ router.get('/bank/default/:user_id', async (req, res) => {
 // ------------------ Order ------------------
 // Thêm Đặt hàng
 router.post('/order/create', async (req, res) => {
+    // Đảm bảo kết nối MongoDB đã được thiết lập trước khi chạy try/catch
     await mongoose.connect(COMMON.uri);
 
-    const { user_id, items, address_id, bank_id, payment_method, shipping_fee, discount_amount } = req.body; // THÊM shipping_fee và discount_amount từ frontend
+    try {
+        // Lấy dữ liệu từ body của request
+        const { user_id, items, address_id, bank_id, payment_method, shipping_fee, discount_amount, voucher_id, total_amount } = req.body; // Thêm total_amount từ frontend
 
-    if (!user_id || !Array.isArray(items) || items.length === 0) {
-        return res.status(400).send({ message: 'Thiếu dữ liệu đơn hàng hoặc danh sách sản phẩm trống' });
-    }
-
-    // Lấy thông tin sản phẩm kèm restaurant_id, name, image_url
-    const detailedItems = await Promise.all(items.map(async (item) => {
-        const product = await ProductModel.findById(item.product_id);
-        if (!product) throw new Error(`Không tìm thấy sản phẩm ${item.product_id}`);
-        return {
-            product_id: item.product_id,
-            product_name: product.name, // LẤY TÊN SẢN PHẨM TỪ DB
-            product_image: product.image_url, // LẤY HÌNH ẢNH SẢN PHẨM TỪ DB
-            quantity: item.quantity,
-            price: item.price_at_order || product.price, // Dùng price_at_order nếu có, không thì dùng giá hiện tại
-            restaurant_id: product.restaurant_id // Lấy restaurant_id từ sản phẩm
-        };
-    }));
-
-    // Nhóm sản phẩm theo restaurant_id
-    const grouped = {};
-    for (let item of detailedItems) {
-        if (!grouped[item.restaurant_id]) grouped[item.restaurant_id] = [];
-        grouped[item.restaurant_id].push(item);
-    }
-
-    const orders = [];
-
-    // Tạo đơn hàng cho từng nhà hàng
-    for (let [restaurant_id, groupItems] of Object.entries(grouped)) {
-        let total_amount_for_restaurant = 0;
-        for (let item of groupItems) {
-            total_amount_for_restaurant += item.price * item.quantity;
+        // Kiểm tra dữ liệu đầu vào cần thiết
+        if (!user_id || !Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ message: 'Thiếu dữ liệu đơn hàng hoặc danh sách sản phẩm trống' });
         }
 
-        // THÊM phí vận chuyển và giảm giá nếu bạn muốn áp dụng cho từng đơn hàng theo nhà hàng
-        // Hoặc bạn có thể áp dụng tổng phí/giảm giá ở frontend và chỉ lưu tổng cuối cùng
-        // Hiện tại, ta sẽ giả định tổng tiền đã bao gồm phí vận chuyển và giảm giá từ frontend
-        // Nếu không, bạn cần tính toán lại ở đây
-        const final_total_amount = total_amount_for_restaurant + (shipping_fee || 0) - (discount_amount || 0);
-
-
-        const order = await OrderModel.create({
-            user_id,
-            restaurant_id,
-            items: groupItems.map(item => ({ // Chỉ lưu các trường cần thiết trong OrderItemSchema
+        // Lấy thông tin chi tiết của từng sản phẩm từ database
+        // Bao gồm restaurant_id, name, image_url và đảm bảo giá
+        const detailedItems = await Promise.all(items.map(async (item) => {
+            const product = await ProductModel.findById(item.product_id).lean(); // Dùng .lean() để tăng hiệu suất đọc
+            if (!product) {
+                // Log lỗi chi tiết nếu sản phẩm không tìm thấy
+                console.error(`Lỗi: Không tìm thấy sản phẩm với ID: ${item.product_id}`);
+                throw new Error(`Không tìm thấy sản phẩm ${item.product_id}`);
+            }
+            return {
                 product_id: item.product_id,
-                product_name: item.product_name,
-                product_image: item.product_image,
+                product_name: product.name,
+                product_image: product.image_url,
                 quantity: item.quantity,
-                price: item.price,
-            })),
-            total_amount: final_total_amount, // Sử dụng tổng tiền đã tính
-            status: 'Pending', // Đặt trạng thái ban đầu là 'Pending' hoặc 'Processing'
-            payment_method: payment_method || 'COD', // Đặt mặc định là 'COD'
-            address_id: address_id || null,
-            bank_id: bank_id || null,
-            shipping_fee: shipping_fee || 0, // Lưu shipping_fee
-            discount_amount: discount_amount || 0, // Lưu discount_amount
-        });
+                // Ưu tiên giá từ frontend (price_at_order) nếu có, nếu không thì lấy giá hiện tại của sản phẩm
+                price: item.price_at_order !== undefined ? item.price_at_order : product.price,
+                restaurant_id: product.restaurant_id
+            };
+        }));
 
-        orders.push(order);
+        // Nhóm sản phẩm theo restaurant_id để tạo các đơn hàng riêng lẻ cho từng nhà hàng
+        const grouped = {};
+        for (let item of detailedItems) {
+            const restaurantId = item.restaurant_id.toString(); // Chuyển ObjectId sang string để làm key
+            if (!grouped[restaurantId]) {
+                grouped[restaurantId] = [];
+            }
+            grouped[restaurantId].push(item);
+        }
+
+        const createdOrders = []; // Mảng để lưu các đơn hàng đã tạo thành công
+
+        // Tạo đơn hàng cho từng nhà hàng
+        for (let [restaurant_id, groupItems] of Object.entries(grouped)) {
+            // Tính tổng tiền sản phẩm cho nhà hàng này
+            let subtotal_for_restaurant = 0;
+            for (let item of groupItems) {
+                subtotal_for_restaurant += item.price * item.quantity;
+            }
+
+            // LƯU Ý QUAN TRỌNG VỀ total_amount, shipping_fee, discount_amount:
+            // Với việc bạn đang tạo nhiều đơn hàng (mỗi nhà hàng 1 đơn), việc phân bổ
+            // shipping_fee và discount_amount (nếu chúng là tổng cho cả giỏ hàng ban đầu)
+            // có thể cần logic phức tạp hơn ở frontend hoặc backend.
+            // HIỆN TẠI: Tôi sẽ giả định `total_amount`, `shipping_fee`, `discount_amount`
+            // được gửi từ frontend là cho **toàn bộ giao dịch**, và chúng ta sẽ lưu
+            // chúng vào **mỗi đơn hàng con**. Điều này có thể không chính xác về mặt
+            // kế toán nếu phí ship và giảm giá chỉ áp dụng một lần duy nhất.
+            // Nếu bạn muốn chia nhỏ chúng cho mỗi nhà hàng, bạn cần logic phân bổ ở đây.
+            // Để đơn giản và phù hợp với cách bạn gửi từ frontend (`total_amount`),
+            // tôi sẽ sử dụng các giá trị đó trực tiếp.
+
+            const order = new OrderModel({
+                user_id,
+                restaurant_id, // ID của nhà hàng hiện tại từ nhóm sản phẩm
+                address_id: address_id,
+                bank_id: bank_id,
+                payment_method: payment_method || 'COD',
+                // Lưu các sản phẩm chi tiết của nhóm này vào đơn hàng
+                items: groupItems.map(item => ({
+                    product_id: item.product_id,
+                    product_name: item.product_name,
+                    product_image: item.product_image,
+                    quantity: item.quantity,
+                    price: item.price,
+                })),
+                // Sử dụng tổng tiền từ frontend, giả định đã được tính toán chính xác
+                total_amount: total_amount, // Sử dụng total_amount từ req.body
+                shipping_fee: shipping_fee || 0,
+                discount_amount: discount_amount || 0,
+                voucher_id: voucher_id || null,
+                status: 'Pending' // Trạng thái ban đầu của đơn hàng
+            });
+
+            await order.save(); // Lưu đơn hàng vào cơ sở dữ liệu
+            createdOrders.push(order); // Thêm đơn hàng đã tạo vào danh sách
+
+            // --- CẬP NHẬT 'purchases' CHO TỪNG SẢN PHẨM ĐÃ ĐẶT ---
+            for (const item of groupItems) { // Lặp qua từng sản phẩm trong nhóm này (đơn hàng hiện tại)
+                try {
+                    await ProductModel.findByIdAndUpdate(
+                        item.product_id,
+                        { $inc: { purchases: item.quantity } }, // Tăng purchases lên số lượng đã mua
+                        { new: true } // Trả về tài liệu đã cập nhật (không bắt buộc dùng ở đây nhưng là thói quen tốt)
+                    );
+                    // console.log(`Đã tăng purchases cho sản phẩm ${item.product_id} thêm ${item.quantity}`);
+                } catch (productUpdateError) {
+                    console.error(`Lỗi khi cập nhật purchases cho sản phẩm ${item.product_id}:`, productUpdateError);
+                    // Có thể xử lý lỗi cụ thể ở đây (ví dụ: ghi log vào một dịch vụ khác)
+                }
+            }
+        }
+
+        // --- Xóa giỏ hàng của người dùng SAU KHI TẤT CẢ ĐƠN HÀNG ĐƯỢC TẠO THÀNH CÔNG ---
+        await CartModel.deleteOne({ user_id: user_id });
+
+        // --- Tăng used_count của voucher nếu có (SAU KHI TẤT CẢ ĐƠN HÀNG ĐƯỢC TẠO) ---
+        if (voucher_id) {
+            try {
+                await VoucherModel.findByIdAndUpdate(
+                    voucher_id,
+                    { $inc: { used_count: 1 } }
+                );
+                // console.log(`Đã tăng used_count cho voucher ${voucher_id}`);
+            } catch (voucherUpdateError) {
+                console.error(`Lỗi khi cập nhật used_count của voucher ${voucher_id}:`, voucherUpdateError);
+            }
+        }
+
+        // Gửi phản hồi thành công
+        res.status(201).json({ message: 'Đặt hàng thành công!', orders: createdOrders });
+
+    } catch (error) {
+        // Xử lý lỗi nếu có bất kỳ vấn đề nào xảy ra trong quá trình tạo đơn hàng
+        console.error("Lỗi khi tạo đơn hàng:", error);
+        res.status(500).json({ message: 'Lỗi server khi tạo đơn hàng.', error: error.message });
     }
-
-    res.send({ message: 'Đã tạo đơn hàng cho từng nhà hàng thành công', orders });
 });
 
 
@@ -717,7 +799,6 @@ router.get('/order/user/:user_id', async (req, res) => {
         .lean(); // Luôn dùng .lean() khi chỉ đọc dữ liệu để hiệu suất tốt hơn
 
     // Thêm log để kiểm tra:
-    console.log("Orders fetched for user with populate:", orders);
 
     res.send(orders);
 });
@@ -913,4 +994,161 @@ router.put('/vouchers/increase-used-count/:id', async (req, res) => {
     console.error('Lỗi khi cập nhật used_count của voucher:', error);
     res.status(500).json({ message: 'Lỗi server khi cập nhật voucher.' });
   }
+});
+
+
+// =========================================================
+//         CÁC ROUTE QUẢN LÝ ĐƠN HÀNG DÀNH CHO ADMIN
+//         (Đơn giản hóa tối đa, không middleware)
+// =========================================================
+
+
+// 1. Lấy TẤT CẢ đơn hàng của MỘT NHÀ HÀNG CỤ THỂ
+// Admin sẽ gửi restaurant_id trong URL. Có thể lọc theo trạng thái (status)
+// Ví dụ: GET /admin/orders/by-restaurant/654321abcdef1234567890ab?status=Pending
+router.get('/admin/orders/by-restaurant/:restaurant_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const { status } = req.query; // Lấy status từ query parameter
+        const restaurantId = req.params.restaurant_id; // Lấy restaurant_id trực tiếp từ URL params
+
+        let query = { restaurant_id: restaurantId };
+        if (status) {
+            query.status = status;
+        }
+
+        const orders = await OrderModel.find(query)
+            .populate('user_id', 'name phone email')
+            .populate('address_id')
+            .populate('bank_id')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        res.status(200).json(orders);
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách đơn hàng cho admin (theo nhà hàng):", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy danh sách đơn hàng', error: error.message });
+    }
+});
+
+
+// 2. Endpoint để Cập nhật trạng thái của đơn hàng bởi Admin (XÁC NHẬN)
+// Admin gửi order_id trong URL và new_status, restaurant_id trong body.
+// Ví dụ: PUT /admin/order/update-status/12345
+// Body: { "new_status": "Completed", "restaurant_id": "654321abcdef1234567890ab" }
+router.put('/admin/order/update-status/:order_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const orderId = req.params.order_id;
+        const { new_status, restaurant_id } = req.body;
+
+        if (!new_status || !restaurant_id) {
+            return res.status(400).json({ message: 'Thiếu trạng thái mới hoặc ID nhà hàng để cập nhật.' });
+        }
+
+        // Định nghĩa các trạng thái MÀ FRONTEND ĐANG GỬI LÊN VÀ BACKEND CHẤP NHẬN
+        // Đây là nơi bạn định nghĩa các trạng thái hợp lệ mà đơn hàng có thể chuyển sang.
+        // Ví dụ: 'Processing', 'Delivered', 'Cancelled'
+        const validStatusesForUpdate = ['Processing', 'Delivered', 'Cancelled']; // ĐÃ SỬA TẠI ĐÂY!
+        if (!validStatusesForUpdate.includes(new_status)) {
+            return res.status(400).json({ message: `Trạng thái không hợp lệ: ${new_status}. Chỉ chấp nhận: ${validStatusesForUpdate.join(', ')} cho việc cập nhật.` });
+        }
+
+        // Tìm đơn hàng và đảm bảo nó thuộc về nhà hàng của admin
+        const order = await OrderModel.findOne({ _id: orderId, restaurant_id: restaurant_id });
+
+        if (!order) {
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng hoặc đơn hàng không thuộc nhà hàng của bạn.' });
+        }
+
+        // --- Logic kiểm tra chuyển đổi trạng thái (RẤT QUAN TRỌNG) ---
+        // Không thể cập nhật trạng thái nếu đơn hàng đã bị hủy hoặc đã giao (trạng thái cuối cùng)
+        if (order.status === 'Cancelled' || order.status === 'Delivered') { // ĐÃ SỬA 'Completed' thành 'Delivered'
+            return res.status(400).json({ message: `Không thể cập nhật trạng thái của đơn hàng đã ${order.status === 'Cancelled' ? 'hủy' : 'giao hàng'}.` });
+        }
+
+        // Các quy tắc chuyển đổi cụ thể:
+        if (order.status === 'Pending') {
+            if (new_status !== 'Processing' && new_status !== 'Cancelled') {
+                return res.status(400).json({ message: 'Đơn hàng đang chờ chỉ có thể chuyển sang "Đang xử lý" hoặc "Đã hủy".' });
+            }
+        } else if (order.status === 'Processing') {
+            if (new_status !== 'Delivered' && new_status !== 'Cancelled') {
+                return res.status(400).json({ message: 'Đơn hàng đang xử lý chỉ có thể chuyển sang "Đã giao hàng" hoặc "Đã hủy".' });
+            }
+        }
+        // Thêm các trường hợp khác nếu cần (ví dụ: không cho phép quay ngược trạng thái)
+        // Ví dụ: if (new_status === 'Pending' && (order.status === 'Processing' || order.status === 'Delivered')) { ... }
+
+        order.status = new_status;
+        await order.save();
+
+        res.status(200).json({ message: `Đơn hàng đã cập nhật trạng thái thành '${new_status}' thành công.`, order: order });
+
+    } catch (error) {
+        console.error("Lỗi khi cập nhật trạng thái đơn hàng bởi admin:", error);
+        res.status(500).json({ message: 'Lỗi server khi cập nhật trạng thái đơn hàng', error: error.message });
+    }
+});
+
+
+// 3. Endpoint để XÓA một đơn hàng bởi Admin (HỦY ĐƠN)
+// Admin sẽ gửi order_id và restaurant_id trong URL.
+// Ví dụ: DELETE /admin/order/delete/12345/654321abcdef1234567890ab
+router.delete('/admin/order/delete/:order_id/:restaurant_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const orderId = req.params.order_id;
+        const restaurantId = req.params.restaurant_id; // Lấy restaurant_id trực tiếp từ URL params
+
+        // Đảm bảo chỉ xóa đơn hàng thuộc về nhà hàng của admin
+        const result = await OrderModel.deleteOne({ _id: orderId, restaurant_id: restaurantId });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng hoặc đơn hàng không thuộc nhà hàng của bạn để xóa.' });
+        }
+
+        res.status(200).json({ message: 'Đơn hàng đã được xóa thành công.' });
+    } catch (error) {
+        console.error("Lỗi khi xóa đơn hàng bởi admin:", error);
+        res.status(500).json({ message: 'Lỗi server khi xóa đơn hàng', error: error.message });
+    }
+});
+
+// 4. Lấy chi tiết một đơn hàng cụ thể của một nhà hàng
+// Admin gửi order_id và restaurant_id trong URL params.
+// Ví dụ: GET /admin/order/detail/654321abcd1234567890def1/654321abcdef1234567890ab
+router.get('/admin/order/detail/:order_id/:restaurant_id', async (req, res) => {
+    try {
+        // Kết nối đến MongoDB
+        // Đảm bảo COMMON.uri chứa chuỗi kết nối MongoDB của bạn
+        // Nếu bạn đã có kết nối global ở server.js, có thể bỏ qua dòng này
+        await mongoose.connect(COMMON.uri); 
+
+        const { order_id, restaurant_id } = req.params; // Lấy order_id và restaurant_id từ URL params
+
+        if (!order_id || !restaurant_id) {
+            return res.status(400).json({ message: 'Thiếu ID đơn hàng hoặc ID nhà hàng trong yêu cầu.' });
+        }
+
+        // Tìm đơn hàng dựa trên _id và restaurant_id
+        // Sử dụng populate để lấy thông tin chi tiết từ các collection liên quan
+        const order = await OrderModel.findOne({
+            _id: order_id,
+            restaurant_id: restaurant_id
+        })
+        .populate('user_id', 'name phone email') // Lấy tên, số điện thoại, email của người dùng
+        .populate('address_id') // Lấy thông tin địa chỉ đầy đủ (nếu có)
+        .populate('bank_id') // Lấy thông tin ngân hàng (nếu có)
+        .lean(); // Sử dụng .lean() để trả về plain JavaScript object, giúp tăng hiệu suất
+
+        if (!order) {
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng hoặc đơn hàng không thuộc nhà hàng của bạn.' });
+        }
+
+        res.status(200).json(order);
+    } catch (error) {
+        console.error("Lỗi khi lấy chi tiết đơn hàng cho admin:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy chi tiết đơn hàng', error: error.message });
+    }
 });
