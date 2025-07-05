@@ -28,7 +28,6 @@ export default function AdminProfileScreen({ navigation }) {
 
         if (!result.canceled) {
             console.log('Đường dẫn ảnh:', result.assets[0].uri);
-            // Sau này xử lý upload lên server tại đây nếu muốn
         }
     };
 
