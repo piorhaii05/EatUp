@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel } = require('./eatUpModel');
+const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel } = require('./eatUpModel');
 const COMMON = require('./COMMON');
 
 const router = express.Router();
@@ -16,12 +16,12 @@ const storage = multer.diskStorage({
     destination: function (req, file, cb) {
         // **Quan trọng:** Đảm bảo thư mục 'uploads' này tồn tại
         // trong thư mục gốc của dự án backend của bạn.
-        cb(null, 'uploads/'); 
+        cb(null, 'uploads/');
     },
     filename: function (req, file, cb) {
         // Đổi tên file để tránh trùng lặp, ví dụ: timestamp + đuôi file gốc
         // Đây sẽ là "linkanh" trong đường dẫn "uploads/linkanh.jpg" của bạn.
-        cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname)); 
+        cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + path.extname(file.originalname));
     }
 });
 
@@ -33,9 +33,9 @@ router.post('/upload', upload.single('image'), (req, res) => {
     if (req.file) {
         // **Backend trả về tên file và đường dẫn tương đối (để frontend sử dụng)**
         // Ví dụ: filename: "1678901234567-12345.jpg", url: "/uploads/1678901234567-12345.jpg"
-        res.status(200).json({ 
-            message: 'Upload thành công', 
-            filename: req.file.filename, 
+        res.status(200).json({
+            message: 'Upload thành công',
+            filename: req.file.filename,
             url: `uploads/${req.file.filename}` // Đây là đường dẫn tương đối bạn muốn
         });
     } else {
@@ -114,6 +114,9 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 avatar_url: user.avatar_url,
                 gender: user.gender || 'Chưa cập nhập',
+                // THÊM HAI TRƯỜNG NÀY VÀO ĐÂY:
+                rating: user.rating, // Đảm bảo lấy giá trị rating từ đối tượng user
+                num_reviews: user.num_reviews, // Đảm bảo lấy giá trị num_reviews từ đối tượng user
             }
         });
 
@@ -537,7 +540,7 @@ router.get('/address/default/:user_id', async (req, res) => {
         } else {
             // Trả về 200 OK với object rỗng hoặc null nếu không tìm thấy,
             // để frontend không báo lỗi JSON Parse, mà xử lý logic "không có địa chỉ mặc định"
-            res.status(200).json({}); 
+            res.status(200).json({});
         }
     } catch (error) {
         console.error("Lỗi khi lấy địa chỉ mặc định từ DB:", error);
@@ -634,7 +637,8 @@ router.post('/order/create', async (req, res) => {
 
     try {
         // Lấy dữ liệu từ body của request
-        const { user_id, items, address_id, bank_id, payment_method, shipping_fee, discount_amount, voucher_id, total_amount } = req.body; // Thêm total_amount từ frontend
+        // total_amount, shipping_fee, discount_amount TỪ FRONTEND ĐƯỢC COI LÀ TỔNG CỦA CẢ GIỎ HÀNG GỐC
+        const { user_id, items, address_id, bank_id, payment_method, shipping_fee, discount_amount, voucher_id, total_amount } = req.body;
 
         // Kiểm tra dữ liệu đầu vào cần thiết
         if (!user_id || !Array.isArray(items) || items.length === 0) {
@@ -671,27 +675,49 @@ router.post('/order/create', async (req, res) => {
             grouped[restaurantId].push(item);
         }
 
+        // --- BẮT ĐẦU LOGIC MỚI ĐỂ PHÂN BỔ TỔNG TIỀN VÀ GIẢM GIÁ ---
+
+        // 1. Tính tổng subtotal của TẤT CẢ các sản phẩm trong giỏ hàng ban đầu (trước khi tách đơn)
+        // Đây là tổng tiền hàng trước khi áp dụng bất kỳ giảm giá hay phí ship nào
+        let overall_subtotal = 0;
+        for (let item of detailedItems) {
+            overall_subtotal += item.price * item.quantity;
+        }
+
         const createdOrders = []; // Mảng để lưu các đơn hàng đã tạo thành công
 
         // Tạo đơn hàng cho từng nhà hàng
         for (let [restaurant_id, groupItems] of Object.entries(grouped)) {
-            // Tính tổng tiền sản phẩm cho nhà hàng này
+            // Tính tổng tiền sản phẩm cho nhà hàng này (subtotal của đơn hàng con)
             let subtotal_for_restaurant = 0;
             for (let item of groupItems) {
                 subtotal_for_restaurant += item.price * item.quantity;
             }
 
-            // LƯU Ý QUAN TRỌNG VỀ total_amount, shipping_fee, discount_amount:
-            // Với việc bạn đang tạo nhiều đơn hàng (mỗi nhà hàng 1 đơn), việc phân bổ
-            // shipping_fee và discount_amount (nếu chúng là tổng cho cả giỏ hàng ban đầu)
-            // có thể cần logic phức tạp hơn ở frontend hoặc backend.
-            // HIỆN TẠI: Tôi sẽ giả định `total_amount`, `shipping_fee`, `discount_amount`
-            // được gửi từ frontend là cho **toàn bộ giao dịch**, và chúng ta sẽ lưu
-            // chúng vào **mỗi đơn hàng con**. Điều này có thể không chính xác về mặt
-            // kế toán nếu phí ship và giảm giá chỉ áp dụng một lần duy nhất.
-            // Nếu bạn muốn chia nhỏ chúng cho mỗi nhà hàng, bạn cần logic phân bổ ở đây.
-            // Để đơn giản và phù hợp với cách bạn gửi từ frontend (`total_amount`),
-            // tôi sẽ sử dụng các giá trị đó trực tiếp.
+            // Phí vận chuyển: Sẽ dùng giá trị shipping_fee từ req.body.
+            // Nếu bạn muốn phí ship khác nhau cho mỗi nhà hàng, bạn cần logic lấy phí ship cho từng nhà hàng ở đây.
+            // Hiện tại, nó sẽ là giá trị shipping_fee được gửi lên từ frontend (coi như phí ship cho cả giỏ hàng, và chúng ta gán cho mỗi đơn con)
+            // HOẶC nếu bạn có một giá trị cố định khác, hãy thay đổi `shipping_fee || 0` bằng giá trị đó.
+            const current_shipping_fee = shipping_fee || 0;
+
+            let allocated_discount_amount = 0;
+            // Tính toán phân bổ giảm giá nếu có discount_amount từ frontend và overall_subtotal > 0
+            if (discount_amount && discount_amount > 0 && overall_subtotal > 0) {
+                // Tính tỷ lệ subtotal của nhà hàng này so với tổng subtotal chung
+                const ratio = subtotal_for_restaurant / overall_subtotal;
+                // Phân bổ giảm giá dựa trên tỷ lệ này
+                allocated_discount_amount = discount_amount * ratio;
+
+                // Đảm bảo không giảm giá quá mức subtotal của nhà hàng
+                // (ví dụ: nếu subtotal của nhà hàng là 100k, giảm giá được phân bổ là 120k thì chỉ giảm 100k)
+                allocated_discount_amount = Math.min(allocated_discount_amount, subtotal_for_restaurant);
+
+                // Làm tròn để tránh số thập phân quá dài
+                allocated_discount_amount = parseFloat(allocated_discount_amount.toFixed(2)); // Làm tròn 2 chữ số thập phân
+            }
+
+            // Tính tổng tiền cho đơn hàng con này: tổng sản phẩm - giảm giá được phân bổ + phí ship
+            const total_amount_for_this_order = subtotal_for_restaurant - allocated_discount_amount + current_shipping_fee;
 
             const order = new OrderModel({
                 user_id,
@@ -707,11 +733,10 @@ router.post('/order/create', async (req, res) => {
                     quantity: item.quantity,
                     price: item.price,
                 })),
-                // Sử dụng tổng tiền từ frontend, giả định đã được tính toán chính xác
-                total_amount: total_amount, // Sử dụng total_amount từ req.body
-                shipping_fee: shipping_fee || 0,
-                discount_amount: discount_amount || 0,
-                voucher_id: voucher_id || null,
+                total_amount: parseFloat(total_amount_for_this_order.toFixed(2)), // Lưu total_amount đã tính toán cho đơn hàng con
+                shipping_fee: current_shipping_fee, // Lưu phí ship đã xác định cho đơn hàng con
+                discount_amount: allocated_discount_amount, // Lưu số tiền giảm giá đã phân bổ cho đơn hàng con
+                voucher_id: voucher_id || null, // Vẫn lưu voucher_id để biết đơn hàng này có sử dụng voucher nào
                 status: 'Pending' // Trạng thái ban đầu của đơn hàng
             });
 
@@ -738,6 +763,7 @@ router.post('/order/create', async (req, res) => {
         await CartModel.deleteOne({ user_id: user_id });
 
         // --- Tăng used_count của voucher nếu có (SAU KHI TẤT CẢ ĐƠN HÀNG ĐƯỢC TẠO) ---
+        // Phần này chỉ cần chạy một lần cho toàn bộ giao dịch, không cần lặp trong mỗi đơn hàng con.
         if (voucher_id) {
             try {
                 await VoucherModel.findByIdAndUpdate(
@@ -759,7 +785,6 @@ router.post('/order/create', async (req, res) => {
         res.status(500).json({ message: 'Lỗi server khi tạo đơn hàng.', error: error.message });
     }
 });
-
 
 // Cập nhập trạng thái thanh toán 
 router.put('/order/pay/:order_id', async (req, res) => {
@@ -978,22 +1003,22 @@ router.post('/vouchers/apply', async (req, res) => {
 
 
 router.put('/vouchers/increase-used-count/:id', async (req, res) => {
-  try {
-    const voucherId = req.params.id;
-    const voucher = await VoucherModel.findById(voucherId); // Tìm voucher bằng ID
+    try {
+        const voucherId = req.params.id;
+        const voucher = await VoucherModel.findById(voucherId); // Tìm voucher bằng ID
 
-    if (!voucher) {
-      return res.status(404).json({ message: 'Voucher không tìm thấy.' });
+        if (!voucher) {
+            return res.status(404).json({ message: 'Voucher không tìm thấy.' });
+        }
+
+        voucher.used_count += 1; // Tăng used_count lên 1
+        await voucher.save(); // Lưu thay đổi vào cơ sở dữ liệu
+
+        res.status(200).json({ message: 'Used count đã được cập nhật thành công.', voucher });
+    } catch (error) {
+        console.error('Lỗi khi cập nhật used_count của voucher:', error);
+        res.status(500).json({ message: 'Lỗi server khi cập nhật voucher.' });
     }
-
-    voucher.used_count += 1; // Tăng used_count lên 1
-    await voucher.save(); // Lưu thay đổi vào cơ sở dữ liệu
-
-    res.status(200).json({ message: 'Used count đã được cập nhật thành công.', voucher });
-  } catch (error) {
-    console.error('Lỗi khi cập nhật used_count của voucher:', error);
-    res.status(500).json({ message: 'Lỗi server khi cập nhật voucher.' });
-  }
 });
 
 
@@ -1123,7 +1148,7 @@ router.get('/admin/order/detail/:order_id/:restaurant_id', async (req, res) => {
         // Kết nối đến MongoDB
         // Đảm bảo COMMON.uri chứa chuỗi kết nối MongoDB của bạn
         // Nếu bạn đã có kết nối global ở server.js, có thể bỏ qua dòng này
-        await mongoose.connect(COMMON.uri); 
+        await mongoose.connect(COMMON.uri);
 
         const { order_id, restaurant_id } = req.params; // Lấy order_id và restaurant_id từ URL params
 
@@ -1137,10 +1162,10 @@ router.get('/admin/order/detail/:order_id/:restaurant_id', async (req, res) => {
             _id: order_id,
             restaurant_id: restaurant_id
         })
-        .populate('user_id', 'name phone email') // Lấy tên, số điện thoại, email của người dùng
-        .populate('address_id') // Lấy thông tin địa chỉ đầy đủ (nếu có)
-        .populate('bank_id') // Lấy thông tin ngân hàng (nếu có)
-        .lean(); // Sử dụng .lean() để trả về plain JavaScript object, giúp tăng hiệu suất
+            .populate('user_id', 'name phone email') // Lấy tên, số điện thoại, email của người dùng
+            .populate('address_id') // Lấy thông tin địa chỉ đầy đủ (nếu có)
+            .populate('bank_id') // Lấy thông tin ngân hàng (nếu có)
+            .lean(); // Sử dụng .lean() để trả về plain JavaScript object, giúp tăng hiệu suất
 
         if (!order) {
             return res.status(404).json({ message: 'Không tìm thấy đơn hàng hoặc đơn hàng không thuộc nhà hàng của bạn.' });
@@ -1150,5 +1175,196 @@ router.get('/admin/order/detail/:order_id/:restaurant_id', async (req, res) => {
     } catch (error) {
         console.error("Lỗi khi lấy chi tiết đơn hàng cho admin:", error);
         res.status(500).json({ message: 'Lỗi server khi lấy chi tiết đơn hàng', error: error.message });
+    }
+});
+
+
+// ------------------ RESTAURANT ------------------
+// Lấy thông tin nhà hàng theo ID
+router.get('/restaurant/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri); // Kết nối MongoDB
+        const restaurant = await UserModel.findById(req.params.id); // Tìm nhà hàng theo ID
+
+        if (!restaurant) {
+            // Nếu không tìm thấy nhà hàng, trả về lỗi 404 với JSON
+            return res.status(404).json({ message: 'Không tìm thấy nhà hàng.' });
+        }
+
+        // Nếu tìm thấy, trả về dữ liệu nhà hàng dưới dạng JSON
+        res.status(200).json(restaurant); // Trả về JSON thành công
+
+    } catch (error) {
+        console.error("Lỗi khi lấy thông tin nhà hàng theo ID:", error);
+        // Trả về lỗi server 500 với JSON
+        res.status(500).json({ message: 'Lỗi server khi lấy thông tin nhà hàng.', error: error.message });
+    }
+});
+
+
+router.post('/reviews/submit', async (req, res) => {
+    // Đảm bảo kết nối MongoDB đã được thiết lập (hoặc bỏ đi nếu đã có kết nối toàn cục)
+    await mongoose.connect(COMMON.uri);
+
+    try {
+        const { orderId, userId, restaurantId, productReviews, restaurantReview } = req.body;
+
+        // 1. Kiểm tra dữ liệu đầu vào
+        if (!orderId || !userId || !restaurantId || !Array.isArray(productReviews) || !restaurantReview) {
+            return res.status(400).json({ message: 'Thiếu dữ liệu đánh giá bắt buộc.' });
+        }
+
+        // 2. Kiểm tra xem đơn hàng đã tồn tại và thuộc về người dùng này chưa
+        const order = await OrderModel.findOne({ _id: orderId, user_id: userId, restaurant_id: restaurantId });
+        if (!order) {
+            return res.status(404).json({ message: 'Không tìm thấy đơn hàng hợp lệ để đánh giá.' });
+        }
+
+        // >>> KIỂM TRA ĐƠN HÀNG ĐÃ ĐƯỢC ĐÁNH GIÁ CHƯA HOẶC CHƯA ĐƯỢC GIAO <<<
+        if (order.status === 'Rated') { // Kiểm tra nếu trạng thái đã là 'Rated'
+            return res.status(400).json({ message: 'Đơn hàng này đã được đánh giá rồi.' });
+        }
+        // Thêm kiểm tra nếu bạn chỉ cho phép đánh giá đơn hàng đã 'Delivered'
+        if (order.status !== 'Delivered') {
+            return res.status(400).json({ message: 'Chỉ có thể đánh giá đơn hàng đã được giao.' });
+        }
+
+
+        // 3. Xử lý và lưu đánh giá nhà hàng
+        if (restaurantReview.rating > 0) {
+            const restaurant = await UserModel.findById(restaurantId);
+            if (restaurant && restaurant.role === 'Admin') { // Giả định role 'Restaurant'
+                const currentRestaurantRating = restaurant.rating || 0;
+                const currentRestaurantNumReviews = restaurant.num_reviews || 0;
+
+                const newTotalRating = (currentRestaurantRating * currentRestaurantNumReviews) + restaurantReview.rating;
+                restaurant.num_reviews = currentRestaurantNumReviews + 1;
+                restaurant.rating = restaurant.num_reviews > 0 ? parseFloat((newTotalRating / restaurant.num_reviews).toFixed(2)) : 0;
+
+                await restaurant.save();
+
+                const newRestaurantReviewDoc = new ReviewSModel({
+                    entity_id: restaurantId,
+                    entity_type: 'Restaurant',
+                    user_id: userId,
+                    order_id: orderId,
+                    rating: restaurantReview.rating,
+                    comment: restaurantReview.comment,
+                });
+                await newRestaurantReviewDoc.save();
+            } else {
+                console.warn(`Không tìm thấy nhà hàng (User có role 'Restaurant') với ID: ${restaurantId} để cập nhật rating.`);
+            }
+        }
+
+        // 4. Xử lý và lưu đánh giá từng sản phẩm
+        for (const pr of productReviews) {
+            if (pr.rating > 0) {
+                const product = await ProductModel.findById(pr.productId);
+                if (product) {
+                    const currentRating = product.rating || 0;
+                    const currentNumReviews = product.num_reviews || 0;
+
+                    const newTotalRating = (currentRating * currentNumReviews) + pr.rating;
+                    product.num_reviews = currentNumReviews + 1;
+                    product.rating = product.num_reviews > 0 ? parseFloat((newTotalRating / product.num_reviews).toFixed(2)) : 0;
+
+                    await product.save();
+
+                    const newProductReviewDoc = new ReviewSModel({
+                        entity_id: pr.productId,
+                        entity_type: 'Product',
+                        user_id: userId,
+                        order_id: orderId,
+                        rating: pr.rating,
+                        comment: pr.comment,
+                    });
+                    await newProductReviewDoc.save();
+                } else {
+                    console.warn(`Không tìm thấy sản phẩm với ID: ${pr.productId} để cập nhật rating.`);
+                }
+            }
+        }
+
+        // >>> CẬP NHẬT TRẠNG THÁI CỦA ĐƠN HÀNG THÀNH 'Rated' <<<
+        order.status = 'Rated';
+        await order.save();
+
+        res.status(200).json({ message: 'Đánh giá đã được gửi thành công.' });
+
+    } catch (error) {
+        console.error("Lỗi khi xử lý đánh giá:", error);
+        res.status(500).json({ message: 'Lỗi server khi gửi đánh giá.', error: error.message });
+    }
+});
+
+// Lấy danh sách đánh giá cho một entity (nhà hàng hoặc sản phẩm)
+router.get('/reviews/:entityType/:entityId', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri); // Kết nối MongoDB
+
+        const { entityType, entityId } = req.params;
+
+        // Kiểm tra entityType hợp lệ (ví dụ: 'Restaurant', 'Product')
+        if (!['Restaurant', 'Product'].includes(entityType)) {
+            return res.status(400).json({ message: 'Loại thực thể không hợp lệ. Phải là "Restaurant" hoặc "Product".' });
+        }
+
+        // Tìm tất cả đánh giá cho entity_id và entity_type cụ thể
+        const reviews = await ReviewSModel.find({
+            entity_id: entityId,
+            entity_type: entityType
+        }).sort({ createdAt: -1 }) // Sắp xếp đánh giá mới nhất lên trước
+          .populate('user_id', 'name avatar_url'); // Lấy thêm tên và avatar của người dùng đã đánh giá
+
+        if (!reviews || reviews.length === 0) {
+            return res.status(200).json([]); // Trả về mảng rỗng nếu không có đánh giá
+        }
+
+        res.status(200).json(reviews);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy danh sách đánh giá:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy đánh giá.', error: error.message });
+    }
+});
+
+
+router.get('/reviews/product', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+
+        // Tìm tất cả các đánh giá có entity_type là 'Product'
+        // và populate entity_id với ProductModel, đồng thời populate user_id
+        const productReviews = await ReviewSModel.find({ entity_type: 'Product' })
+            .populate({
+                path: 'entity_id', // Thay 'product_id' bằng 'entity_id'
+                model: 'menu_item',  // Đảm bảo 'Product' là tên Model bạn đăng ký với Mongoose
+                select: 'name description image_url' // Các trường muốn lấy từ ProductModel
+            })
+            .populate({
+                path: 'user_id',
+                model: 'user',      // Tên model của bạn là 'user' (chữ thường) dựa trên schema bạn cung cấp
+                select: 'name avatar_url'
+            })
+            .sort({ createdAt: -1 }); // Sắp xếp theo ngày tạo giảm dần
+
+        // Filter ra các đánh giá mà entity_id không null (tức là đã populate thành công)
+        // Đôi khi có thể có đánh giá entity_id bị lỗi hoặc bị xóa trong DB
+        const validProductReviews = productReviews.filter(review => review.entity_id !== null && review.user_id !== null);
+
+
+        if (!validProductReviews || validProductReviews.length === 0) {
+            return res.status(200).json([]); // Trả về mảng rỗng nếu không có đánh giá hợp lệ
+        }
+
+        res.status(200).json(validProductReviews);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy đánh giá sản phẩm:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy đánh giá sản phẩm.', error: error.message });
+    } finally {
+        // Tùy chọn: Ngắt kết nối MongoDB sau mỗi yêu cầu nếu không dùng persistent connection
+        // await mongoose.disconnect();
     }
 });

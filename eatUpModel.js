@@ -7,7 +7,17 @@ const EatUpSchema = new mongoose.Schema({
     password_hash: { type: String, required: true },
     role: { type: String, default: 'User', required: true },
     avatar_url: { type: String, default: 'https://cdn2.fptshop.com.vn/small/avatar_trang_1_cd729c335b.jpg' },
-    gender: {type: String, default: 'Chưa cập nhập'}
+    gender: {type: String, default: 'Chưa cập nhập'},
+    rating: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 5
+    },
+    num_reviews: {
+        type: Number,
+        default: 0
+    },
 });
 
 const ProductSchema = new mongoose.Schema({
@@ -19,7 +29,11 @@ const ProductSchema = new mongoose.Schema({
     status: { type: Boolean, default: true },
     rating: { type: Number, default: 5 },
     purchases: { type: Number, default: 0 },
-    category:  {type: String }
+    category:  {type: String },
+    num_reviews: {
+        type: Number,
+        default: 0
+    },
 }, { timestamps: true }); 
 
 
@@ -75,13 +89,13 @@ const OrderItemSchema = new mongoose.Schema({
 const OrderSchema = new mongoose.Schema({
     user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
     restaurant_id: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true }, // Giả sử restaurant_id cũng là user (nhà hàng)
-    items: [OrderItemSchema],
+    items: [OrderItemSchema], // Đảm bảo OrderItemSchema đã được định nghĩa ở đâu đó
     total_amount: { type: Number, required: true },
-    status: { type: String, enum: ['Pending', 'Processing', 'Delivered', 'Cancelled'], default: 'Pending' },
+    // >>> CHỈ THÊM 'Rated' VÀO ENUM CỦA TRƯỜNG STATUS <<<
+    status: { type: String, enum: ['Pending', 'Processing', 'Delivered', 'Cancelled', 'Rated'], default: 'Pending' },
     payment_method: { type: String, enum: ['COD', 'Bank Transfer'], required: true },
-    // ĐẢM BẢO CÓ 'ref' TRỎ ĐÚNG ĐẾN TÊN MODEL CỦA CON
-    address_id: { type: mongoose.Schema.Types.ObjectId, ref: 'address', default: null }, // <-- 'Address' là tên model địa chỉ của con
-    bank_id: { type: mongoose.Schema.Types.ObjectId, ref: 'bank', default: null },       // <-- 'Bank' là tên model ngân hàng của con
+    address_id: { type: mongoose.Schema.Types.ObjectId, ref: 'address', default: null },
+    bank_id: { type: mongoose.Schema.Types.ObjectId, ref: 'bank', default: null },
     shipping_fee: { type: Number, default: 0 },
     discount_amount: { type: Number, default: 0 },
     transaction_id: { type: String, required: false },
@@ -103,6 +117,15 @@ const VoucherSchema = new mongoose.Schema({
     active: {type: Boolean,default: true}
 }, { timestamps: true });
 
+const ReviewSchema = new mongoose.Schema({
+    entity_id: { type: mongoose.Schema.Types.ObjectId, required: true }, // ID của thực thể được đánh giá (nhà hàng hoặc sản phẩm)
+    entity_type: { type: String, required: true, enum: ['Restaurant', 'Product'] }, // Loại thực thể
+    user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
+    rating: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, default: '' },
+    createdAt: { type: Date, default: Date.now },
+});
+
 const FavoriteModel = mongoose.model('favorite', FavoriteSchema);
 const CartModel = mongoose.model('cart', CartSchema);
 const UserModel = mongoose.model('user', EatUpSchema);
@@ -112,5 +135,6 @@ const AddressModel = mongoose.model('address', AddressSchema);
 const BankModel = mongoose.model('bank', BankSchema);
 const OrderModel = mongoose.model('order', OrderSchema);
 const VoucherModel = mongoose.model('voucher', VoucherSchema);
+const ReviewSModel = mongoose.model('review', ReviewSchema);
 
-module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel };
+module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel };
