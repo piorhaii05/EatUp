@@ -1,6 +1,7 @@
-import { Entypo, Feather } from '@expo/vector-icons';
+import { Entypo, Feather, MaterialIcons } from '@expo/vector-icons'; // Import MaterialIcons
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { linkanh, linkapi } from '../../navigation/config';
@@ -11,26 +12,29 @@ export default function ManageFoodsScreen({ navigation }) {
   const [restaurantId, setRestaurantId] = useState(null);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    fetchFoods();
-  }, []);
-
-  const fetchFoods = async () => {
+  const fetchFoods = useCallback(async () => {
     setLoading(true);
     const storedUser = await AsyncStorage.getItem('user');
     if (storedUser) {
       const user = JSON.parse(storedUser);
       setRestaurantId(user._id);
       try {
-        const res = await fetch(`${linkapi}product`);
+        const res = await fetch(`${linkapi}product/by-restaurant/${user._id}`);
         const data = await res.json();
         setFoods(data);
       } catch (err) {
-        Toast.show({ type: 'error', text1: 'Lỗi tải danh sách món ăn' });
+        console.error("Lỗi khi tải món ăn:", err);
+        Toast.show({ type: 'error', text1: 'Lỗi tải danh sách món ăn', text2: 'Vui lòng kiểm tra kết nối mạng.' });
       }
     }
     setLoading(false);
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchFoods();
+    }, [fetchFoods])
+  );
 
   const handleDelete = (id) => {
     Alert.alert('Xác nhận', 'Bạn có chắc muốn xóa món ăn này?', [
@@ -38,15 +42,60 @@ export default function ManageFoodsScreen({ navigation }) {
       {
         text: 'Xóa', style: 'destructive', onPress: async () => {
           try {
-            await fetch(`${linkapi}product/${id}`, { method: 'DELETE' });
-            setFoods(foods.filter(item => item._id !== id));
-            Toast.show({ type: 'success', text1: 'Đã xóa món ăn' });
+            const res = await fetch(`${linkapi}product/${id}`, { method: 'DELETE' });
+            if (res.ok) {
+              setFoods(foods.filter(item => item._id !== id));
+              Toast.show({ type: 'success', text1: 'Đã xóa món ăn' });
+            } else {
+              const errorData = await res.json();
+              Toast.show({ type: 'error', text1: 'Lỗi xóa món ăn', text2: errorData.message || 'Không thể xóa món ăn.' });
+            }
           } catch (err) {
-            Toast.show({ type: 'error', text1: 'Lỗi xóa món ăn' });
+            console.error("Lỗi khi xóa món ăn:", err);
+            Toast.show({ type: 'error', text1: 'Lỗi kết nối', text2: 'Không thể xóa món ăn do lỗi mạng.' });
           }
         }
       }
     ]);
+  };
+
+  // Hàm mới để chuyển đổi trạng thái (status)
+  const toggleProductStatus = async (productId, currentStatus) => {
+    setLoading(true); // Có thể đặt loading cho từng item hoặc loading chung nếu muốn
+    try {
+      const newStatus = !currentStatus;
+      const res = await fetch(`${linkapi}product/${productId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (res.ok) {
+        // Cập nhật trạng thái trong state foods ngay lập tức
+        setFoods(prevFoods =>
+          prevFoods.map(food =>
+            food._id === productId ? { ...food, status: newStatus } : food
+          )
+        );
+        Toast.show({
+          type: 'success',
+          text1: 'Cập nhật trạng thái thành công!',
+          text2: newStatus ? 'Món ăn đã được mở bán.' : 'Món ăn đã được ngừng bán.'
+        });
+      } else {
+        const errorData = await res.json();
+        Toast.show({
+          type: 'error',
+          text1: 'Cập nhật trạng thái thất bại',
+          text2: errorData.message || 'Không thể cập nhật trạng thái món ăn.'
+        });
+      }
+    } catch (err) {
+      console.error("Lỗi khi cập nhật trạng thái:", err);
+      Toast.show({ type: 'error', text1: 'Lỗi kết nối', text2: 'Không thể cập nhật trạng thái món ăn do lỗi mạng.' });
+    } finally {
+      setLoading(false); // Dừng loading
+    }
   };
 
   const filteredFoods = foods.filter(item =>
@@ -54,33 +103,44 @@ export default function ManageFoodsScreen({ navigation }) {
   );
 
   const renderItem = ({ item }) => (
-    <View style={styles.itemContainer}>
+    <TouchableOpacity style={styles.itemContainer} onPress={() => navigation.navigate('AdminProductDetail', { productId: item._id })}>
+      {/* Hiển thị biểu tượng trạng thái */}
+      <View style={[styles.statusIndicator, { backgroundColor: item.status ? '#4CAF50' : '#F44336' }]}>
+        <Text style={styles.statusText}>{item.status ? 'Đang bán' : 'Ngừng bán'}</Text>
+      </View>
+
       <Image
         source={{ uri: linkanh + item.image_url }}
         style={styles.itemImage}
         resizeMode='cover'
       />
-      {/* Thay đổi ở đây: Thêm numberOfLines và ellipsizeMode */}
       <Text
         style={styles.itemName}
-        numberOfLines={1} // Giới hạn chỉ 1 dòng
-        ellipsizeMode='tail' // Hiển thị "..." ở cuối nếu văn bản bị cắt
+        numberOfLines={1}
+        ellipsizeMode='tail'
       >
         {item.name}
       </Text>
       <Text style={styles.itemPrice}>{item.price} $</Text>
       <Text style={styles.itemRating}>{item.rating} ⭐</Text>
       <View style={styles.actionRow}>
-        <TouchableOpacity onPress={() => navigation.navigate('EditFood', { food: item, restaurantId })}>
+        <TouchableOpacity onPress={() => navigation.navigate('EditFood', { food: item, reload: fetchFoods })}>
           <Feather name="edit" size={20} color="#444" />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => handleDelete(item._id)}>
           <Feather name="trash" size={20} color="#444" />
         </TouchableOpacity>
+        {/* Nút chuyển đổi trạng thái */}
+        <TouchableOpacity onPress={() => toggleProductStatus(item._id, item.status)}>
+          {item.status ? (
+            <MaterialIcons name="toggle-on" size={28} color="#4CAF50" /> // Icon bật
+          ) : (
+            <MaterialIcons name="toggle-off" size={28} color="#F44336" /> // Icon tắt
+          )}
+        </TouchableOpacity>
       </View>
-    </View>
+    </TouchableOpacity>
   );
-
 
   if (loading) {
     return (
@@ -117,6 +177,7 @@ export default function ManageFoodsScreen({ navigation }) {
       >
         <Entypo name="plus" size={28} color="#fff" />
       </TouchableOpacity>
+      <Toast />
     </View>
   );
 }
@@ -124,7 +185,8 @@ export default function ManageFoodsScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 10
+    padding: 10,
+    paddingTop: 40,
   },
   searchBox: {
     flexDirection: 'row',
@@ -133,49 +195,69 @@ const styles = StyleSheet.create({
     borderColor: '#f55',
     borderRadius: 30,
     paddingHorizontal: 15,
-    marginBottom: 15
+    marginBottom: 15,
+    height: 50,
   },
   input: {
     flex: 1,
-    padding: 10
+    paddingLeft: 10,
   },
   itemContainer: {
     backgroundColor: '#eee',
-    margin: 5,
+    marginVertical: 5,
     borderRadius: 10,
     padding: 10,
     width: '47%',
-    alignItems: 'center'
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+    elevation: 2,
+    position: 'relative', // Quan trọng cho việc định vị statusIndicator
+  },
+  statusIndicator: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    zIndex: 1, // Đảm bảo nó nằm trên ảnh
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   itemImage: {
     width: '100%',
     height: 100,
-    borderRadius: 10
+    borderRadius: 10,
   },
   itemName: {
     fontWeight: 'bold',
     marginTop: 5,
-    // Các thuộc tính mới được thêm vào
-    width: '100%', // Đảm bảo Text chiếm đủ chiều rộng để áp dụng ellipsis
-    textAlign: 'center' // Căn giữa tên món ăn
-  },
-  itemDesc: {
-    color: '#777',
-    marginBottom: 5
+    width: '100%',
+    textAlign: 'center',
   },
   itemPrice: {
     color: '#f55',
-    marginTop: 2
+    marginTop: 2,
+    fontSize: 15,
+    fontWeight: '500',
   },
   itemRating: {
     color: '#444',
-    marginTop: 2
+    marginTop: 2,
+    fontSize: 14,
   },
   actionRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '60%',
-    marginTop: 5,
+    justifyContent: 'space-around',
+    width: '95%', // Tăng chiều rộng để chứa 3 icon
+    marginTop: 10,
+    alignItems: 'center', // Căn giữa các icon theo chiều dọc
   },
   loadingContainer: {
     flex: 1,
@@ -200,6 +282,8 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     textAlign: 'center',
-    marginTop: 20
+    marginTop: 20,
+    fontSize: 16,
+    color: '#888',
   }
 });

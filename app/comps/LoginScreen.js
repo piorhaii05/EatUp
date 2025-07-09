@@ -46,7 +46,15 @@ export default function LoginScreen({ navigation }) {
           type: 'success',
           text1: 'Đăng nhập thành công!',
         });
-        await AsyncStorage.setItem('user', JSON.stringify(data.user));
+
+        const userId = data?.user?._id;
+
+        if (userId) {
+          await AsyncStorage.setItem('restaurant_id', userId); // ✅ dùng _id là id nhà hàng
+          await AsyncStorage.setItem('user', JSON.stringify(data.user));
+        } else {
+          console.warn('⚠️ Không tìm thấy _id trong user');
+        }
 
         // Phân quyền điều hướng:
         if (data.user.role === 'Admin') {

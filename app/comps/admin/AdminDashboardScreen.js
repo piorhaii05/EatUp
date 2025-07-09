@@ -1,32 +1,81 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Dimensions, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PieChart } from 'react-native-chart-kit';
 
 const screenWidth = Dimensions.get('window').width;
+const BASE_SERVER_URL = 'http://172.16.0.2:3000';
 
-export default function AdminDashboardScreen() {
+export default function AdminDashboardScreen({ route }) {
     const navigation = useNavigation();
+    const [restaurantId, setRestaurantId] = useState(null);
+
     const [totalOrders, setTotalOrders] = useState(0);
-    const [totalUsers, setTotalUsers] = useState(0);
+    const [totalRevenue, setTotalRevenue] = useState(0);
     const [totalProducts, setTotalProducts] = useState(0);
     const [totalReviews, setTotalReviews] = useState(0);
     const [orderStats, setOrderStats] = useState({ completed: 0, pending: 0, cancelled: 0 });
 
     useEffect(() => {
-        fetchStatistics();
+        const getRestaurantId = async () => {
+            const id = await AsyncStorage.getItem('restaurant_id');
+            // console.log('📦 ID từ AsyncStorage:', id);
+            if (id) setRestaurantId(id);
+        };
+        getRestaurantId();
     }, []);
 
-    const fetchStatistics = async () => {
+    useEffect(() => {
+        if (restaurantId) {
+            fetchStatistics(restaurantId);
+        }
+    }, [restaurantId]);
+
+    const fetchStatistics = async (restaurantId) => {
         try {
-            // Fake data, sau này bạn thay bằng API thật
-            setTotalOrders(7);
-            setTotalUsers(7);
-            setTotalProducts(7);
-            setTotalReviews(7);
-            setOrderStats({ completed: 2, pending: 4, cancelled: 1 });
+            const res = await fetch(`${BASE_SERVER_URL}/api/admin/orders/by-restaurant/${restaurantId}`);
+            const orders = await res.json();
+
+            const resProducts = await fetch(`${BASE_SERVER_URL}/api/product/by-restaurant/${restaurantId}`);
+            const products = await resProducts.json();
+
+            // Fetch đánh giá của nhà hàng
+            const resReviewsRestaurant = await fetch(`${BASE_SERVER_URL}/api/reviews/Restaurant/${restaurantId}`);
+            const restaurantReviews = await resReviewsRestaurant.json();
+
+            // Fetch đánh giá của từng sản phẩm
+            let productReviewCount = 0;
+            for (const product of products) {
+                const resProductReview = await fetch(`${BASE_SERVER_URL}/api/reviews/Product/${product._id}`);
+                const productReviews = await resProductReview.json();
+                if (Array.isArray(productReviews)) {
+                    productReviewCount += productReviews.length;
+                }
+            }
+
+            const totalOrders = orders.length;
+            const totalRevenue = orders.reduce((sum, o) => sum + o.total_amount, 0);
+
+            const stats = { completed: 0, pending: 0, cancelled: 0 };
+
+            orders.forEach(order => {
+                const status = order.status?.toLowerCase();
+                if (status === 'rated' || status === 'completed') stats.completed++;
+                else if (status === 'pending') stats.pending++;
+                else if (status === 'cancelled') stats.cancelled++;
+            });
+
+            setTotalOrders(totalOrders);
+            setTotalRevenue(totalRevenue);
+            setOrderStats(stats);
+
+            setTotalProducts(Array.isArray(products) ? products.length : 0);
+            const totalReviewCount = (Array.isArray(restaurantReviews) ? restaurantReviews.length : 0) + productReviewCount;
+            setTotalReviews(totalReviewCount);
+
         } catch (error) {
-            console.error(error);
+            console.error('Lỗi fetch:', error);
         }
     };
 
@@ -44,8 +93,8 @@ export default function AdminDashboardScreen() {
                     <Text style={styles.cardLabel}>Tổng đơn hàng</Text>
                 </View>
                 <View style={styles.card}>
-                    <Text style={styles.cardNumber}>{totalUsers}</Text>
-                    <Text style={styles.cardLabel}>Tổng người dùng</Text>
+                    <Text style={styles.cardNumber}>{totalRevenue.toLocaleString()} $</Text>
+                    <Text style={styles.cardLabel}>Doanh thu</Text>
                 </View>
             </View>
 

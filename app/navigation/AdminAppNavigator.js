@@ -9,7 +9,7 @@ import AdminProfileScreen from '../comps/admin/AdminProfileScreen';
 import ManageFoodsScreen from '../comps/admin/ManageFoodsScreen';
 import ManageOrdersScreen from '../comps/admin/ManageOrdersScreen';
 import ManageReviewsScreen from '../comps/admin/ManageReviewsScreen';
-import ManageUsersScreen from '../comps/admin/ManageUsersScreen';
+import ManageVoucherScreen from '../comps/admin/ManageVoucherScreen ';
 import RevenueScreen from '../comps/admin/RevenueScreen';
 import { linkanh } from '../navigation/config';
 
@@ -48,7 +48,7 @@ export default function AdminAppNavigator() {
             <Drawer.Screen name="Chat hỗ trợ" component={AdminChatScreen} />
             <Drawer.Screen name="Tài khoản cá nhân" component={AdminProfileScreen} />
             <Drawer.Screen name="Quản lý đơn hàng" component={ManageOrdersScreen} />
-            <Drawer.Screen name="Quản lý người dùng" component={ManageUsersScreen} />
+            <Drawer.Screen name="Quản lý Voucher" component={ManageVoucherScreen} />
             <Drawer.Screen name="Quản lý món ăn" component={ManageFoodsScreen} />
             <Drawer.Screen name="Quản lý đánh giá" component={ManageReviewsScreen} />
             <Drawer.Screen name="Thống kê doanh thu" component={RevenueScreen} />
@@ -122,9 +122,9 @@ function CustomDrawerContent(props) {
                 onPress={() => navigation.navigate('Quản lý đơn hàng')}
             />
             <DrawerItem
-                label="Quản lý người dùng"
-                icon={({ color }) => <Feather name="users" size={20} color={color} />}
-                onPress={() => navigation.navigate('Quản lý người dùng')}
+                label="Quản lý voucher" // Đổi label thành "Quản lý voucher"
+                icon={({ color }) => <Feather name="tag" size={20} color={color} />} // Thay đổi icon thành "tag"
+                onPress={() => navigation.navigate('Quản lý Voucher')} // Đổi tên route thành 'QuanLyVoucher' (hoặc tên route tương ứng của bạn)
             />
             <DrawerItem
                 label="Quản lý món ăn"
