@@ -1334,31 +1334,50 @@ router.get('/reviews/product', async (req, res) => {
     try {
         await mongoose.connect(COMMON.uri);
 
-        // Tìm tất cả các đánh giá có entity_type là 'Product'
-        // và populate entity_id với ProductModel, đồng thời populate user_id
-        const productReviews = await ReviewSModel.find({ entity_type: 'Product' })
+        // Lấy restaurantId từ query parameter
+        const restaurantId = req.query.restaurantId; 
+
+        let query = { entity_type: 'Product' };
+
+        if (restaurantId) {
+            // Bước 1: Tìm tất cả các sản phẩm (menu_item) thuộc về nhà hàng này
+            // Đảm bảo ProductModel/menu_itemModel của bạn có trường restaurant_id
+            const products = await mongoose.model('menu_item').find({ restaurant_id: restaurantId }).select('_id');
+            const productIds = products.map(product => product._id);
+
+            // Bước 2: Thêm điều kiện lọc vào query của ReviewSModel
+            // Tìm các reviews mà entity_id của chúng nằm trong danh sách productIds
+            query.entity_id = { $in: productIds };
+        }
+
+        const productReviews = await ReviewSModel.find(query) // Áp dụng query có điều kiện lọc
             .populate({
-                path: 'entity_id', // Thay 'product_id' bằng 'entity_id'
-                model: 'menu_item',  // Đảm bảo 'Product' là tên Model bạn đăng ký với Mongoose
-                select: 'name description image_url' // Các trường muốn lấy từ ProductModel
+                path: 'entity_id',
+                model: 'menu_item',
+                // ✅ RẤT QUAN TRỌNG: Bao gồm 'restaurant_id' ở đây để có thể dùng cho lọc hoặc kiểm tra lại nếu cần
+                select: 'name description image_url restaurant_id' 
             })
             .populate({
                 path: 'user_id',
-                model: 'user',      // Tên model của bạn là 'user' (chữ thường) dựa trên schema bạn cung cấp
+                model: 'user',
                 select: 'name avatar_url'
             })
-            .sort({ createdAt: -1 }); // Sắp xếp theo ngày tạo giảm dần
+            .sort({ createdAt: -1 });
 
-        // Filter ra các đánh giá mà entity_id không null (tức là đã populate thành công)
-        // Đôi khi có thể có đánh giá entity_id bị lỗi hoặc bị xóa trong DB
-        const validProductReviews = productReviews.filter(review => review.entity_id !== null && review.user_id !== null);
+        // Filter ra các đánh giá mà entity_id và user_id không null (đã populate thành công)
+        // và optionally lọc lại một lần nữa theo restaurant_id để đảm bảo chắc chắn (nếu cần)
+        const validAndFilteredProductReviews = productReviews.filter(review => 
+            review.entity_id !== null && 
+            review.user_id !== null &&
+            // Lọc chính xác nếu entity_id đã được populate với restaurant_id
+            (restaurantId ? review.entity_id.restaurant_id && review.entity_id.restaurant_id.toString() === restaurantId : true)
+        );
 
-
-        if (!validProductReviews || validProductReviews.length === 0) {
-            return res.status(200).json([]); // Trả về mảng rỗng nếu không có đánh giá hợp lệ
+        if (!validAndFilteredProductReviews || validAndFilteredProductReviews.length === 0) {
+            return res.status(200).json([]);
         }
 
-        res.status(200).json(validProductReviews);
+        res.status(200).json(validAndFilteredProductReviews);
 
     } catch (error) {
         console.error("Lỗi khi lấy đánh giá sản phẩm:", error);
@@ -1366,5 +1385,224 @@ router.get('/reviews/product', async (req, res) => {
     } finally {
         // Tùy chọn: Ngắt kết nối MongoDB sau mỗi yêu cầu nếu không dùng persistent connection
         // await mongoose.disconnect();
+    }
+});
+
+// Thống kê doanh thu
+const dayjs = require('dayjs'); // Cần cài: npm install dayjs
+
+router.get('/admin/revenue/by-restaurant/:restaurant_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri); // Đảm bảo kết nối MongoDB
+
+        const { restaurant_id } = req.params;
+        const { startDate, endDate } = req.query;
+
+        if (!mongoose.Types.ObjectId.isValid(restaurant_id)) {
+            return res.status(400).json({ message: 'restaurant_id không hợp lệ' });
+        }
+
+        const queryConditions = {
+            restaurant_id,
+            status: { $in: ['Delivered', 'Rated'] }
+        };
+
+        if (startDate && endDate) {
+            const startOfDay = dayjs(startDate).startOf('day').toDate();
+            const endOfDay = dayjs(endDate).endOf('day').toDate();
+
+            queryConditions.createdAt = {
+                $gte: startOfDay,
+                $lte: endOfDay
+            };
+        }
+
+        const completedOrders = await OrderModel.find(queryConditions).lean();
+
+        let totalRevenue = 0;
+        let todayRevenue = 0;
+        const todayFormatted = dayjs().format('YYYY-MM-DD');
+        let totalOrders = completedOrders.length;
+
+        const revenueByDate = {};
+        
+        completedOrders.forEach(order => {
+            const createdAt = dayjs(order.createdAt).format('YYYY-MM-DD');
+            const amount = order.total_amount || 0;
+
+            totalRevenue += amount;
+
+            if (createdAt === todayFormatted) {
+                todayRevenue += amount;
+            }
+
+            if (!revenueByDate[createdAt]) {
+                revenueByDate[createdAt] = 0;
+            }
+            revenueByDate[createdAt] += amount;
+        });
+
+        // --- THAY ĐỔI LỚN Ở ĐÂY: Truy vấn topProducts dựa vào trường 'purchases' trong Menu_Item model ---
+        const topProductsFromDB = await ProductModel.find({
+            restaurant_id: restaurant_id // Lọc sản phẩm theo restaurant_id
+        })
+        .sort({ purchases: -1 }) // Sắp xếp giảm dần theo trường 'purchases'
+        .limit(10) // Lấy top 10 sản phẩm
+        .select('name image_url price purchases') // Chỉ chọn các trường cần thiết
+        .lean();
+
+        // Định dạng lại dữ liệu topProducts để khớp với cấu trúc frontend mong đợi
+        const topProductsFormatted = topProductsFromDB.map(product => ({
+            name: product.name,
+            quantity: product.purchases || 0, // Sử dụng 'purchases' làm 'quantity'
+            total: product.price * (product.purchases || 0), // Ước tính tổng doanh thu từ purchases (nếu cần hiển thị)
+            image: product.image_url // Sử dụng image_url
+        }));
+        // --- KẾT THÚC THAY ĐỔI LỚN ---
+
+        res.json({
+            totalRevenue,
+            todayRevenue,
+            totalOrders,
+            revenueByDate,
+            topProducts: topProductsFormatted // Gửi mảng topProducts đã được truy vấn và định dạng
+        });
+
+    } catch (error) {
+        console.error('Lỗi khi thống kê doanh thu:', error);
+        res.status(500).json({ message: 'Lỗi server khi thống kê doanh thu', error: error.message });
+    }
+});
+
+// Endpoint mới để lấy tất cả thống kê cho dashboard
+router.get('/admin/dashboard-stats/by-restaurant/:restaurant_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+
+        const { restaurant_id } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(restaurant_id)) {
+            return res.status(400).json({ message: 'restaurant_id không hợp lệ.' });
+        }
+        const restaurantObjectId = new mongoose.Types.ObjectId(restaurant_id);
+
+
+        // --- 1. Thống kê tổng quan đơn hàng và doanh thu ---
+
+        // Lấy tổng số đơn hàng trong DB (tất cả các trạng thái, không giới hạn thời gian)
+        const totalOrdersCount = await OrderModel.countDocuments({ restaurant_id: restaurantObjectId });
+
+
+        // Lấy dữ liệu 7 ngày gần nhất cho biểu đồ doanh thu
+        const now = dayjs();
+        const startOfToday = now.startOf('day').toDate();
+        const sevenDaysAgo = now.subtract(6, 'day').startOf('day').toDate(); // Kể cả hôm nay là 7 ngày
+
+        const recentCompletedOrders = await OrderModel.find({
+            restaurant_id: restaurantObjectId,
+            createdAt: { $gte: sevenDaysAgo, $lte: now.endOf('day').toDate() },
+            status: { $in: ['Delivered', 'Rated'] } // Chỉ các trạng thái hoàn tất để tính doanh thu
+        }).lean();
+
+        let totalRevenue = 0;
+        const revenueByDate = {};
+
+        // Khởi tạo tất cả các ngày trong 7 ngày gần nhất với doanh thu 0
+        let currentDate = dayjs(sevenDaysAgo);
+        while (currentDate.toDate() <= now.toDate()) {
+            revenueByDate[currentDate.format('YYYY-MM-DD')] = 0;
+            currentDate = currentDate.add(1, 'day');
+        }
+
+        // Tính tổng doanh thu và doanh thu theo ngày từ recentCompletedOrders (chỉ trong 7 ngày)
+        recentCompletedOrders.forEach(order => {
+            const orderDate = dayjs(order.createdAt).format('YYYY-MM-DD');
+            const amount = order.total_amount || 0;
+            totalRevenue += amount;
+
+            if (revenueByDate[orderDate] !== undefined) {
+                revenueByDate[orderDate] += amount;
+            }
+        });
+
+
+        // === ĐIỀU CHỈNH CHỖ NÀY: Thống kê trạng thái đơn hàng TỔNG CỘNG (cho cả hộp màu và Pie Chart) ===
+        const allOrdersForStatus = await OrderModel.aggregate([
+            { $match: { restaurant_id: restaurantObjectId } }, // Lấy tất cả đơn hàng của nhà hàng
+            {
+                $group: {
+                    _id: '$status', // Nhóm theo trạng thái
+                    count: { $sum: 1 } // Đếm số lượng đơn hàng cho mỗi trạng thái
+                }
+            }
+        ]);
+
+        const totalOrderStats = { completed: 0, pendingAndProcessing: 0, cancelled: 0 };
+        allOrdersForStatus.forEach(item => {
+            const status = item._id?.toLowerCase();
+            if (status === 'delivered' || status === 'rated') {
+                totalOrderStats.completed += item.count;
+            } else if (status === 'pending' || status === 'processing') {
+                totalOrderStats.pendingAndProcessing += item.count;
+            } else if (status === 'cancelled') {
+                totalOrderStats.cancelled += item.count;
+            }
+            // Có thể thêm các trạng thái khác nếu có
+        });
+
+
+        // --- 2. Đếm tổng số món ăn ---
+        const totalProducts = await ProductModel.countDocuments({ restaurant_id: restaurantObjectId });
+
+        // --- 3. Đếm tổng số đánh giá ---
+        const totalRestaurantReviews = await ReviewSModel.countDocuments({
+            entity_id: restaurantObjectId,
+            entity_type: 'Restaurant'
+        });
+
+        const productIds = await ProductModel.find({ restaurant_id: restaurantObjectId }).select('_id').lean();
+        const product_object_ids_array = productIds.map(p => p._id);
+
+        const totalProductReviews = await ReviewSModel.countDocuments({
+            entity_id: { $in: product_object_ids_array },
+            entity_type: 'Product'
+        });
+
+        const totalReviews = totalRestaurantReviews + totalProductReviews;
+
+        // --- 4. Lấy các đơn hàng gần đây nhất (vẫn giữ nguyên 5 đơn gần nhất) ---
+        // Lấy 5 đơn hàng mới nhất (từ tất cả các đơn hàng, không giới hạn thời gian)
+        const recentOrders = await OrderModel.find({ restaurant_id: restaurantObjectId })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .select('total_amount status createdAt') // Chọn các trường cần thiết
+            .lean();
+
+        // Định dạng lại cho `recentOrders` để khớp với frontend
+        const formattedRecentOrders = recentOrders.map(order => ({
+            _id: order._id,
+            total_amount: order.total_amount,
+            status: order.status,
+            order_date: order.createdAt
+        }));
+
+
+        // --- Trả về tất cả dữ liệu ---
+        res.json({
+            totalOrders: totalOrdersCount, // Tổng số đơn hàng trong DB
+            totalRevenue: totalRevenue, // Tổng doanh thu 7 ngày gần nhất
+            orderStats: totalOrderStats, // <--- Đã được sửa để là TỔNG CỘNG
+            totalProducts: totalProducts,
+            totalReviews: totalReviews,
+            revenueByDate: revenueByDate,
+            recentOrders: formattedRecentOrders
+        });
+
+    } catch (error) {
+        console.error('Lỗi khi lấy thống kê dashboard:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy thống kê dashboard', error: error.message });
+    } finally {
+        // Tùy chọn: Đóng kết nối nếu bạn muốn
+        // mongoose.connection.close();
     }
 });
