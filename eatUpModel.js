@@ -118,7 +118,7 @@ const VoucherSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const ReviewSchema = new mongoose.Schema({
-    entity_id: { type: mongoose.Schema.Types.ObjectId, required: true }, // ID của thực thể được đánh giá (nhà hàng hoặc sản phẩm)
+    entity_id: { type: mongoose.Schema.Types.ObjectId, required: true}, // ID của thực thể được đánh giá (nhà hàng hoặc sản phẩm)
     entity_type: { type: String, required: true, enum: ['Restaurant', 'Product'] }, // Loại thực thể
     user_id: { type: mongoose.Schema.Types.ObjectId, ref: 'user', required: true },
     rating: { type: Number, required: true, min: 1, max: 5 },

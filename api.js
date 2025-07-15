@@ -267,28 +267,72 @@ router.get('/product/newest', async (req, res) => {
     }
 });
 
-router.get('/product/search', async (req, res) => {
-    console.log('Received search request');
-    const { name } = req.query;
-    console.log('Search query:', name); // Kiểm tra xem `name` có nhận được không
+// router.get('/product/search', async (req, res) => {
+//     console.log('Received search request');
+//     const { name } = req.query;
+//     console.log('Search query:', name); // Kiểm tra xem `name` có nhận được không
 
-    if (!name) {
-        console.log('No search name provided, returning 400.');
-        return res.status(400).json({ message: 'Vui lòng cung cấp từ khóa tìm kiếm (name).' });
+//     if (!name) {
+//         console.log('No search name provided, returning 400.');
+//         return res.status(400).json({ message: 'Vui lòng cung cấp từ khóa tìm kiếm (name).' });
+//     }
+
+//     try {
+//         // Kiểm tra xem Product model có được import đúng không
+//         // console.log('Product model:', Product); 
+//         const products = await ProductModel.find({
+//             name: { $regex: name, $options: 'i' },
+//             status: true
+//         });
+//         console.log('Found products:', products.length);
+//         res.json(products);
+//     } catch (err) {
+//         console.error("Error in product search:", err); // In lỗi chi tiết
+//         res.status(500).json({ message: 'Lỗi server khi tìm kiếm sản phẩm.' });
+//     }
+// });
+
+
+router.get('/search', async (req, res) => { // Đổi tên endpoint thành /search
+    console.log('Received combined search request');
+    const { q } = req.query; // Đổi tên query param thành 'q' cho từ khóa chung
+    console.log('Combined search query:', q);
+
+    if (!q) {
+        return res.status(400).json({ message: 'Vui lòng cung cấp từ khóa tìm kiếm.' });
     }
 
     try {
-        // Kiểm tra xem Product model có được import đúng không
-        // console.log('Product model:', Product); 
+        // Tìm kiếm sản phẩm
         const products = await ProductModel.find({
-            name: { $regex: name, $options: 'i' },
+            name: { $regex: q, $options: 'i' },
             status: true
         });
         console.log('Found products:', products.length);
-        res.json(products);
+
+        // Tìm kiếm nhà hàng (người dùng có role là admin)
+        const restaurants = await UserModel.find({
+            role: 'Admin',
+            name: { $regex: q, $options: 'i' },
+            // Thêm các điều kiện khác nếu cần, ví dụ: isActive: true
+        });
+        console.log('Found restaurants (Admin Users):', restaurants.length);
+
+        // Mapping lại dữ liệu nhà hàng nếu cần (giống như Lựa chọn 1)
+        const formattedRestaurants = restaurants.map(restaurant => ({
+            _id: restaurant._id,
+            name: restaurant.name,
+            phone: restaurant.phone,
+            image_url: restaurant.avatar_url,
+            avgRating: restaurant.rating || null,
+            // ...
+        }));
+
+        // Trả về cả hai kết quả trong một object
+        res.json({ products, restaurants: formattedRestaurants }); // Đổi tên key thành 'restaurants' cho rõ ràng
     } catch (err) {
-        console.error("Error in product search:", err); // In lỗi chi tiết
-        res.status(500).json({ message: 'Lỗi server khi tìm kiếm sản phẩm.' });
+        console.error("Error in combined search:", err);
+        res.status(500).json({ message: 'Lỗi server khi thực hiện tìm kiếm.' });
     }
 });
 
@@ -1298,6 +1342,121 @@ router.post('/reviews/submit', async (req, res) => {
     }
 });
 
+router.get('/reviews/product/:productId', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const { productId } = req.params;
+
+        // Đảm bảo chỉ có điều kiện này. Không có validate nào khác cho entity_type ở đây.
+        const reviews = await ReviewSModel.find({ entity_id: productId, entity_type: 'Product' })
+            .populate('user_id', 'name avatar_url')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        const formattedReviews = reviews.map(review => ({
+            _id: review._id,
+            rating: review.rating,
+            comment: review.comment,
+            createdAt: review.createdAt,
+            userName: review.user_id?.name || 'Người dùng ẩn danh',
+            userAvatar: review.user_id?.avatar_url,
+        }));
+
+        res.status(200).json(formattedReviews);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy đánh giá sản phẩm:", error); // Tìm dòng này trong console backend
+        // Backend chỉ nên trả về lỗi 500 nếu có lỗi nội bộ, không phải lỗi validation entity_type ở đây
+        res.status(500).json({ message: 'Lỗi server khi lấy đánh giá sản phẩm.', error: error.message });
+    } finally {
+        // Đóng kết nối nếu bạn quản lý kết nối thủ công
+    }
+});
+
+router.get('/reviews/user/:userId', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const { userId } = req.params;
+
+        const reviewsRaw = await ReviewSModel.find({ user_id: userId })
+            .populate('user_id', 'name avatar_url')
+            .sort({ createdAt: -1 })
+            .lean();
+
+        const populatedReviewsPromises = reviewsRaw.map(async (review) => {
+            let entityName = '';
+            let rawEntityImage = null;
+            let additionalInfo = {};
+
+            if (review.entity_type === 'Restaurant') {
+                const restaurantEntity = await UserModel.findById(review.entity_id)
+                    .select('name avatar_url phone') // <-- Đã đổi 'address' thành 'phone', bỏ 'categories'
+                    .lean();
+
+                if (restaurantEntity) {
+                    entityName = restaurantEntity.name;
+                    rawEntityImage = restaurantEntity.avatar_url;
+                    additionalInfo = {
+                        phoneNumber: restaurantEntity.phone || null, // <-- Sử dụng 'phoneNumber' để tránh trùng tên và rõ ràng hơn
+                    };
+                } else {
+                    console.warn(`[Backend]: Không tìm thấy nhà hàng với ID: ${review.entity_id}`);
+                    entityName = 'Nhà hàng không rõ (ID không tồn tại)';
+                    additionalInfo = { phoneNumber: null }; //
+                }
+            } else if (review.entity_type === 'Product') {
+                const productEntity = await ProductModel.findById(review.entity_id)
+                    .select('name image_url price restaurant_id')
+                    .populate('restaurant_id', 'name') // Populate tên nhà hàng bán sản phẩm
+                    .lean();
+
+                if (productEntity) {
+                    entityName = productEntity.name;
+                    rawEntityImage = productEntity.image_url;
+                    additionalInfo = {
+                        price: productEntity.price !== undefined ? productEntity.price : null,
+                        restaurantName: productEntity.restaurant_id ? productEntity.restaurant_id.name : null, // <-- Đã sửa lỗi ở đây
+                    };
+                } else {
+                    console.warn(`[Backend]: Không tìm thấy sản phẩm với ID: ${review.entity_id}`);
+                    entityName = 'Sản phẩm không rõ (ID không tồn tại)';
+                    additionalInfo = { price: null, restaurantName: null };
+                }
+            } else {
+                entityName = 'Loại thực thể không rõ';
+                additionalInfo = {};
+            }
+
+            const formattedReview = {
+                _id: review._id,
+                entity_id: review.entity_id,
+                entity_type: review.entity_type,
+                entityName: entityName,
+                entityImage: rawEntityImage,
+                rating: review.rating,
+                comment: review.comment,
+                createdAt: review.createdAt,
+                userName: review.user_id?.name,
+                userAvatar: review.user_id?.avatar_url,
+                ...additionalInfo,
+            };
+
+            return formattedReview;
+        });
+
+        const finalReviews = await Promise.all(populatedReviewsPromises);
+        res.status(200).json(finalReviews);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy đánh giá của người dùng:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy đánh giá của người dùng.', error: error.message });
+    } finally {
+        // Đóng kết nối nếu bạn quản lý kết nối thủ công
+        // if (mongoose.connection.readyState === 1) { // Chỉ đóng nếu đang mở
+        //     mongoose.connection.close();
+        // }
+    }
+});
 // Lấy danh sách đánh giá cho một entity (nhà hàng hoặc sản phẩm)
 router.get('/reviews/:entityType/:entityId', async (req, res) => {
     try {
