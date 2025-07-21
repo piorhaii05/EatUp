@@ -128,7 +128,7 @@ function CustomDrawerContent(props) {
             />
             <DrawerItem
                 label="Quản lý món ăn"
-                icon={({ color }) => <FontAwesome5 name="utensils" size={18} color={color} />}
+                icon={({ color }) => <FontAwesome5 name="utensils" size={20} color={color} />}
                 onPress={() => navigation.navigate('Quản lý món ăn')}
             />
             <DrawerItem

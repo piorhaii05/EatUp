@@ -11,6 +11,7 @@ import EditAddressScreen from '../comps/EditAddressScreen';
 import EditNamePhoneScreen from '../comps/EditNamePhoneScreen';
 import HistoryOrdersScreen from '../comps/HistoryOrdersScreen';
 import LoginScreen from '../comps/LoginScreen';
+import MyRatingsScreen from '../comps/MyRatingsScreen';
 import OrderDetailsScreen from '../comps/OrderDetailsScreen';
 import ProductDetail from '../comps/ProductDetail';
 import RateProductsScreen from '../comps/RateProductsScreen';
@@ -20,6 +21,7 @@ import SplashScreen from '../comps/SplashScreen';
 import VoucherListScreen from '../comps/VoucherListScreen';
 import VoucherScreen from '../comps/VoucherScreen';
 import WelcomeScreen from '../comps/WelcomeScreen';
+import AddVoucherScreen from '../comps/admin/AddVoucherScreen';
 import AdminAddProductScreen from '../comps/admin/AdminAddProductScreen';
 import AdminDashboardScreen from '../comps/admin/AdminDashboardScreen';
 import AdminEditFoodScreen from '../comps/admin/AdminEditFoodScreen';
@@ -27,6 +29,7 @@ import AdminOrderDetailScreen from '../comps/admin/AdminOrderDetailScreen';
 import AdminProductDetailScreen from '../comps/admin/AdminProductDetailScreen';
 import AdminProfileScreen from '../comps/admin/AdminProfileScreen';
 import AdminReviewsListScreen from '../comps/admin/AdminReviewsListScreen';
+import EditAddressAdminScreen from '../comps/admin/EditAddressAdminScreen';
 import EditNameAdminScreen from '../comps/admin/EditNameAdminScreen';
 import EditPasswordAdminScreen from '../comps/admin/EditPasswordAdminScreen';
 import ManageFoodsScreen from '../comps/admin/ManageFoodsScreen';
@@ -63,6 +66,7 @@ const AppNavigator = () => (
     <Stack.Screen name="VoucherList" component={VoucherListScreen} />
     <Stack.Screen name="SearchResults" component={SearchResultsScreen} />
     <Stack.Screen name="RateProducts" component={RateProductsScreen} />
+    <Stack.Screen name="MyRatings" component={MyRatingsScreen} />
 
     <Stack.Screen name="AdminProfile" component={AdminProfileScreen} />
     <Stack.Screen name="EditNameAdmin" component={EditNameAdminScreen} />
@@ -70,6 +74,8 @@ const AppNavigator = () => (
     <Stack.Screen name="AdminProductDetail" component={AdminProductDetailScreen} />
     <Stack.Screen name="AdminOrderDetail" component={AdminOrderDetailScreen} />
     <Stack.Screen name="AdminReviewsList" component={AdminReviewsListScreen} />
+    <Stack.Screen name="EditAddressAdmin" component={EditAddressAdminScreen} />
+    <Stack.Screen name="AddVoucher" component={AddVoucherScreen} />
   </Stack.Navigator>
 );
 

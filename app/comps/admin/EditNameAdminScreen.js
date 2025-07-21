@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import {
-    Alert,
     StyleSheet,
     Text,
     TextInput,
@@ -29,8 +28,38 @@ export default function EditNameAdminScreen({ navigation }) {
     }, []);
 
     const handleSave = async () => {
-        if (!name.trim() || !phone.trim()) {
-            Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ thông tin');
+        if (!name.trim()) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi nhập liệu',
+                text2: 'Vui lòng nhập họ và tên.',
+            });
+            return;
+        }
+
+        // Validate số điện thoại
+        if (!phone.trim()) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi nhập liệu',
+                text2: 'Vui lòng nhập số điện thoại.',
+            });
+            return;
+        }
+        if (!/^\d+$/.test(phone)) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi nhập liệu',
+                text2: 'Số điện thoại chỉ được chứa ký tự số.',
+            });
+            return;
+        }
+        if (phone.length !== 10) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi nhập liệu',
+                text2: 'Số điện thoại phải có đúng 10 chữ số.',
+            });
             return;
         }
 
@@ -47,12 +76,20 @@ export default function EditNameAdminScreen({ navigation }) {
             Toast.show({
                 type: 'success',
                 text1: 'Cập nhật thành công!',
+                text2: 'Thông tin của bạn đã được lưu.',
             });
 
-            navigation.goBack();
+            // Đặt timeout ngắn để Toast có thể hiển thị trước khi chuyển màn hình
+            setTimeout(() => {
+                navigation.navigate('HomeAdmin', { shouldRefresh: true });
+            }, 500);
         } catch (error) {
             console.error(error);
-            Alert.alert('Lỗi', 'Cập nhật thất bại');
+            Toast.show({
+                type: 'error',
+                text1: 'Cập nhật thất bại!',
+                text2: 'Đã có lỗi xảy ra khi lưu thông tin. Vui lòng thử lại.',
+            });
         }
     };
 
@@ -79,16 +116,24 @@ export default function EditNameAdminScreen({ navigation }) {
                     placeholder="Số điện thoại"
                     style={styles.input}
                     value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="phone-pad"
-                    maxLength={15}
+                    onChangeText={(text) => {
+                        // Cho phép nhập chỉ số
+                        if (/^\d*$/.test(text)) {
+                            setPhone(text);
+                        }
+                    }}
+                    keyboardType="numeric"
+                    maxLength={10}
                 />
-                <Text style={styles.counter}>{phone.length}/15</Text>
+                <Text style={styles.counter}>{phone.length}/10</Text>
             </View>
 
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
                 <Text style={styles.saveText}>LƯU</Text>
             </TouchableOpacity>
+
+            {/* Component Toast cần được render để hiển thị thông báo */}
+            <Toast />
         </View>
     );
 }
