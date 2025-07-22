@@ -114,7 +114,9 @@ const VoucherSchema = new mongoose.Schema({
     usage_limit: { type: Number,default: null},
     used_count: {type: Number,default: 0},
     user_specific: {type: Boolean,default: false}, 
-    active: {type: Boolean,default: true}
+    active: {type: Boolean,default: true},
+    // restaurant_id: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Restaurant' },
+    restaurant_id: { type: String, required: true },
 }, { timestamps: true });
 
 const ReviewSchema = new mongoose.Schema({
@@ -126,6 +128,77 @@ const ReviewSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now },
 });
 
+const MessageSchema = new mongoose.Schema({
+    // ID của cuộc hội thoại mà tin nhắn này thuộc về
+    conversation_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'conversation', // Tham chiếu đến ConversationModel
+        required: true
+    },
+    // ID của người gửi tin nhắn
+    sender_id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'user', // Tham chiếu đến UserModel (người gửi)
+        required: true
+    },
+    // Nội dung tin nhắn
+    message_text: {
+        type: String,
+        required: true,
+        trim: true // Loại bỏ khoảng trắng ở đầu và cuối
+    },
+    // Trạng thái của tin nhắn (ví dụ: 'sent', 'delivered', 'read')
+    status: {
+        type: String,
+        enum: ['sent', 'delivered', 'read'],
+        default: 'sent'
+    },
+    // Thời gian tin nhắn được gửi
+    createdAt: {
+        type: Date,
+        default: Date.now
+    }
+}, {
+    // Tự động thêm `createdAt` (nhưng chúng ta đã định nghĩa thủ công để đặt default: Date.now)
+    // Nếu bạn muốn `updatedAt` cho mỗi tin nhắn, hãy để timestamps: true
+    timestamps: { createdAt: true, updatedAt: false } // Chỉ muốn createdAt
+});
+
+const ConversationSchema = new mongoose.Schema({
+    participants: [
+        {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'user', // Hoặc 'Restaurant' nếu bạn có các model riêng biệt cho từng loại
+            required: true
+        }
+    ],
+    participantsHash: {
+        type: String, // Chuỗi hash của mảng participants đã sắp xếp
+        required: true,
+        unique: true // Đảm bảo tính duy nhất của cuộc hội thoại
+    },
+    lastMessage: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'message'
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+}, { timestamps: true });
+
+// --------------------------------------------------------------------------
+// QUAN TRỌNG: Định nghĩa chỉ mục duy nhất trên mảng 'participants'
+// Điều này yêu cầu mảng participants phải được sắp xếp để chỉ mục hoạt động đúng
+// và coi [A, B] và [B, A] là giống nhau.
+ConversationSchema.index({ participantsHash: 1 }, { unique: true });
+
+const MessageModel = mongoose.model('message', MessageSchema);
+const ConversationModel = mongoose.model('conversation', ConversationSchema);
 const FavoriteModel = mongoose.model('favorite', FavoriteSchema);
 const CartModel = mongoose.model('cart', CartSchema);
 const UserModel = mongoose.model('user', EatUpSchema);
@@ -137,4 +210,4 @@ const OrderModel = mongoose.model('order', OrderSchema);
 const VoucherModel = mongoose.model('voucher', VoucherSchema);
 const ReviewSModel = mongoose.model('review', ReviewSchema);
 
-module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel };
+module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel, ConversationModel, MessageModel };

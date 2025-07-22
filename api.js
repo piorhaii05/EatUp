@@ -1,9 +1,11 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel } = require('./eatUpModel');
+const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel, MessageModel, ConversationModel } = require('./eatUpModel');
 const COMMON = require('./COMMON');
 
 const router = express.Router();
+
+const crypto = require('crypto');
 
 const multer = require('multer');
 const path = require('path');
@@ -969,6 +971,24 @@ router.get('/vouchers', async (req, res) => {
     }
 });
 
+// Route: Lấy tất cả voucher của một nhà hàng theo restaurant_id
+router.get('/vouchers/by-restaurant/:restaurant_id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const { restaurant_id } = req.params;
+
+        if (!restaurant_id) {
+            return res.status(400).json({ message: 'Thiếu restaurant_id.' });
+        }
+
+        const vouchers = await VoucherModel.find({ restaurant_id: restaurant_id }).sort({ end_date: 1 });
+        res.status(200).json(vouchers);
+    } catch (error) {
+        console.error("Lỗi khi lấy voucher theo nhà hàng:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy voucher theo nhà hàng', error: error.message });
+    }
+});
+
 // Route 2: Lấy voucher theo ID (nếu cần xem chi tiết voucher nào đó)
 router.get('/vouchers/:id', async (req, res) => {
     try {
@@ -1065,6 +1085,97 @@ router.put('/vouchers/increase-used-count/:id', async (req, res) => {
     }
 });
 
+// Sửa voucher theo ID
+router.put('/vouchers/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const voucherId = req.params.id;
+        const updateData = req.body; // Dữ liệu sửa gửi từ client
+
+        const updatedVoucher = await VoucherModel.findByIdAndUpdate(
+            voucherId,
+            updateData,
+            { new: true }
+        );
+
+        if (!updatedVoucher) {
+            return res.status(404).json({ message: 'Không tìm thấy voucher để sửa.' });
+        }
+
+        res.status(200).json({ message: 'Sửa voucher thành công!', voucher: updatedVoucher });
+    } catch (error) {
+        console.error('Lỗi khi sửa voucher:', error);
+        res.status(500).json({ message: 'Lỗi server khi sửa voucher.', error: error.message });
+    }
+});
+
+// Xóa voucher theo ID
+router.delete('/vouchers/:id', async (req, res) => {
+    try {
+        const voucherId = req.params.id;
+
+        if (!mongoose.Types.ObjectId.isValid(voucherId)) {
+            return res.status(400).json({ message: 'ID không hợp lệ.' });
+        }
+
+        const deletedVoucher = await VoucherModel.findByIdAndDelete(voucherId);
+
+        if (!deletedVoucher) {
+            return res.status(404).json({ message: 'Không tìm thấy voucher để xoá.' });
+        }
+
+        res.status(200).json({ message: 'Xoá voucher thành công!', voucher: deletedVoucher });
+    } catch (error) {
+        console.error('Lỗi khi xoá voucher:', error);
+        res.status(500).json({ message: 'Lỗi server khi xoá voucher.', error: error.message });
+    }
+});
+
+// Thêm mới voucher
+router.post('/vouchers', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const {
+            code,
+            description,
+            discount_type,
+            discount_value,
+            min_order_amount,
+            max_discount_amount,
+            start_date,
+            end_date,
+            usage_limit,
+            restaurant_id
+        } = req.body;
+
+        if (!restaurant_id) {
+            return res.status(400).json({ message: 'Thiếu restaurant_id!' });
+        }
+
+        const newVoucher = new VoucherModel({
+            code,
+            description,
+            discount_type,
+            discount_value,
+            min_order_amount,
+            max_discount_amount,
+            start_date,
+            end_date,
+            usage_limit,
+            used_count: 0,
+            user_specific: false,
+            active: true,
+            restaurant_id, // ⚠️ Quan trọng: phải lưu
+        });
+
+        await newVoucher.save();
+
+        res.status(201).json({ message: 'Tạo voucher thành công!', voucher: newVoucher });
+    } catch (error) {
+        console.error('Lỗi khi thêm voucher:', error);
+        res.status(500).json({ message: 'Lỗi server khi thêm voucher.', error: error.message });
+    }
+});
 
 // =========================================================
 //         CÁC ROUTE QUẢN LÝ ĐƠN HÀNG DÀNH CHO ADMIN
@@ -1474,7 +1585,7 @@ router.get('/reviews/:entityType/:entityId', async (req, res) => {
             entity_id: entityId,
             entity_type: entityType
         }).sort({ createdAt: -1 }) // Sắp xếp đánh giá mới nhất lên trước
-          .populate('user_id', 'name avatar_url'); // Lấy thêm tên và avatar của người dùng đã đánh giá
+            .populate('user_id', 'name avatar_url'); // Lấy thêm tên và avatar của người dùng đã đánh giá
 
         if (!reviews || reviews.length === 0) {
             return res.status(200).json([]); // Trả về mảng rỗng nếu không có đánh giá
@@ -1494,7 +1605,7 @@ router.get('/reviews/product', async (req, res) => {
         await mongoose.connect(COMMON.uri);
 
         // Lấy restaurantId từ query parameter
-        const restaurantId = req.query.restaurantId; 
+        const restaurantId = req.query.restaurantId;
 
         let query = { entity_type: 'Product' };
 
@@ -1514,7 +1625,7 @@ router.get('/reviews/product', async (req, res) => {
                 path: 'entity_id',
                 model: 'menu_item',
                 // ✅ RẤT QUAN TRỌNG: Bao gồm 'restaurant_id' ở đây để có thể dùng cho lọc hoặc kiểm tra lại nếu cần
-                select: 'name description image_url restaurant_id' 
+                select: 'name description image_url restaurant_id'
             })
             .populate({
                 path: 'user_id',
@@ -1525,8 +1636,8 @@ router.get('/reviews/product', async (req, res) => {
 
         // Filter ra các đánh giá mà entity_id và user_id không null (đã populate thành công)
         // và optionally lọc lại một lần nữa theo restaurant_id để đảm bảo chắc chắn (nếu cần)
-        const validAndFilteredProductReviews = productReviews.filter(review => 
-            review.entity_id !== null && 
+        const validAndFilteredProductReviews = productReviews.filter(review =>
+            review.entity_id !== null &&
             review.user_id !== null &&
             // Lọc chính xác nếu entity_id đã được populate với restaurant_id
             (restaurantId ? review.entity_id.restaurant_id && review.entity_id.restaurant_id.toString() === restaurantId : true)
@@ -1584,7 +1695,7 @@ router.get('/admin/revenue/by-restaurant/:restaurant_id', async (req, res) => {
         let totalOrders = completedOrders.length;
 
         const revenueByDate = {};
-        
+
         completedOrders.forEach(order => {
             const createdAt = dayjs(order.createdAt).format('YYYY-MM-DD');
             const amount = order.total_amount || 0;
@@ -1605,10 +1716,10 @@ router.get('/admin/revenue/by-restaurant/:restaurant_id', async (req, res) => {
         const topProductsFromDB = await ProductModel.find({
             restaurant_id: restaurant_id // Lọc sản phẩm theo restaurant_id
         })
-        .sort({ purchases: -1 }) // Sắp xếp giảm dần theo trường 'purchases'
-        .limit(10) // Lấy top 10 sản phẩm
-        .select('name image_url price purchases') // Chỉ chọn các trường cần thiết
-        .lean();
+            .sort({ purchases: -1 }) // Sắp xếp giảm dần theo trường 'purchases'
+            .limit(10) // Lấy top 10 sản phẩm
+            .select('name image_url price purchases') // Chỉ chọn các trường cần thiết
+            .lean();
 
         // Định dạng lại dữ liệu topProducts để khớp với cấu trúc frontend mong đợi
         const topProductsFormatted = topProductsFromDB.map(product => ({
@@ -1763,5 +1874,366 @@ router.get('/admin/dashboard-stats/by-restaurant/:restaurant_id', async (req, re
     } finally {
         // Tùy chọn: Đóng kết nối nếu bạn muốn
         // mongoose.connection.close();
+    }
+});
+
+// ------------------ RESTAURANT ------------------
+// Lấy thông tin nhà hàng theo ID
+router.get('/restaurants/:id', async (req, res) => { // <-- Endpoint này được giữ nguyên
+    try {
+        await mongoose.connect(COMMON.uri); // Giữ nguyên dòng này theo yêu cầu của bạn, nhưng hãy xem xét lại
+
+        const { id } = req.params;
+
+        // Kiểm tra ID có phải là ObjectId hợp lệ không trước khi tìm kiếm
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ message: 'ID nhà hàng không hợp lệ.' });
+        }
+
+        const restaurant = await UserModel.findById(id).lean(); // Tìm theo ID trong UserModel
+
+        if (!restaurant) {
+            return res.status(404).json({ message: 'Không tìm thấy nhà hàng.' });
+        }
+
+        // Bạn có thể muốn kiểm tra thêm `restaurant.role` để đảm bảo nó là 'Restaurant' hoặc 'Admin'
+        // if (restaurant.role !== 'Restaurant' && restaurant.role !== 'Admin') {
+        //     return res.status(404).json({ message: 'ID này không thuộc về một nhà hàng.' });
+        // }
+
+        res.status(200).json(restaurant);
+
+    } catch (error) {
+        console.error("Lỗi khi lấy thông tin nhà hàng theo ID:", error);
+        res.status(500).json({ message: 'Lỗi server khi lấy thông tin nhà hàng.', error: error.message });
+    } finally {
+        // Có thể cần đóng kết nối nếu bạn mở nó trong mỗi request, nhưng không khuyến khích cách này.
+        // if (mongoose.connection.readyState === 1) {
+        //     await mongoose.disconnect();
+        // }
+    }
+});
+
+// Lấy tất cả các món ăn của một nhà hàng cụ thể theo restaurant_id
+// Endpoint: GET /restaurants/:restaurantId/menu_items (thêm endpoint này)
+router.get('/restaurants/:restaurantId/menu_items', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri); // Giữ nguyên dòng này theo yêu cầu của bạn, nhưng hãy xem xét lại
+
+        const { restaurantId } = req.params;
+
+        // Kiểm tra xem restaurantId có phải là ObjectId hợp lệ không
+        // (Mặc dù ProductSchema.restaurant_id là String, nhưng dữ liệu thực tế thường là ObjectId string)
+        if (!mongoose.Types.ObjectId.isValid(restaurantId)) {
+            return res.status(400).json({ message: 'ID nhà hàng không hợp lệ.' });
+        }
+
+        // Tìm tất cả các sản phẩm (ProductModel, collection 'menu_item') có restaurant_id khớp
+        const menuItems = await ProductModel.find({
+            restaurant_id: restaurantId,
+            status: true
+        }).lean();
+
+        // Trả về mảng rỗng nếu không tìm thấy món ăn nào, thân thiện với frontend hơn là 404
+        res.status(200).json(menuItems);
+
+    } catch (error) {
+        console.error('Lỗi khi lấy danh sách món ăn theo nhà hàng ID:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy danh sách món ăn.', error: error.message });
+    } finally {
+        // Có thể cần đóng kết nối nếu bạn mở nó trong mỗi request, nhưng không khuyến khích cách này.
+        // if (mongoose.connection.readyState === 1) {
+        //     await mongoose.disconnect();
+        // }
+    }
+});
+
+router.get('/addresses/user/:userId', async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        const address = await AddressModel.findOne({ user_id: userId }); // Tìm địa chỉ theo user_id (restaurantId)
+
+        if (!address) {
+            return res.status(404).json({ message: 'Không tìm thấy địa chỉ cho nhà hàng này.' });
+        }
+        res.json(address);
+    } catch (err) {
+        console.error('Lỗi khi lấy địa chỉ:', err);
+        res.status(500).json({ message: 'Lỗi server khi lấy địa chỉ.' });
+    }
+});
+
+
+// Middleware để kết nối MongoDB (hoặc bạn đã có kết nối toàn cục)
+// Nếu bạn đã có kết nối toàn cục, có thể bỏ qua dòng này trong mỗi route
+router.use(async (req, res, next) => {
+    if (mongoose.connection.readyState !== 1) { // Kiểm tra nếu chưa kết nối
+        try {
+            await mongoose.connect(COMMON.uri);
+            // console.log("MongoDB connected for chat routes.");
+        } catch (error) {
+            console.error("Lỗi kết nối MongoDB:", error);
+            return res.status(500).json({ message: "Lỗi server: Không thể kết nối cơ sở dữ liệu." });
+        }
+    }
+    next();
+});
+
+// --- ROUTES CHAT ---
+
+// 1. Tạo cuộc hội thoại MỚI hoặc LẤY cuộc hội thoại HIỆN CÓ
+// Endpoint: POST /chat/conversation
+// Body: { participant1Id: "userA_id", participant2Id: "userB_id" }
+router.post('/chat/conversation', async (req, res) => {
+    try {
+        const { participant1Id, participant2Id } = req.body;
+
+        if (!participant1Id || !participant2Id) {
+            return res.status(400).json({ message: 'Thiếu ID của người tham gia.' });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(participant1Id) || !mongoose.Types.ObjectId.isValid(participant2Id)) {
+            return res.status(400).json({ message: 'Một hoặc cả hai ID người tham gia không hợp lệ.' });
+        }
+
+        // Đảm bảo cả hai ID đều là chuỗi và được sắp xếp để nhất quán
+        const participantsSorted = [participant1Id.toString(), participant2Id.toString()].sort();
+
+        // Tạo một hash duy nhất từ mảng participants đã sắp xếp
+        const pHash = crypto.createHash('sha256').update(participantsSorted.join(',')).digest('hex');
+
+        // Sử dụng findOneAndUpdate với upsert: true
+        const conversation = await ConversationModel.findOneAndUpdate(
+            {
+                // Truy vấn chỉ dựa vào participantsHash
+                participantsHash: pHash
+            },
+            {
+                $setOnInsert: {
+                    // Đưa cả participants và participantsHash vào $setOnInsert
+                    participants: participantsSorted.map(id => new mongoose.Types.ObjectId(id)), // Chuyển lại về ObjectId
+                    participantsHash: pHash, // <-- ĐƯA participantsHash VÀO ĐÂY
+                    createdAt: new Date()
+                },
+                $set: {
+                    updatedAt: new Date()
+                }
+            },
+            {
+                new: true, // Trả về tài liệu sau khi cập nhật (hoặc tạo)
+                upsert: true, // Nếu không tìm thấy, tạo một tài liệu mới
+                setDefaultsOnInsert: true // Có thể bật lại nếu muốn áp dụng các giá trị default khác
+            }
+        );
+
+        const newConversation = conversation.createdAt.getTime() === conversation.updatedAt.getTime();
+
+        res.status(newConversation ? 201 : 200).json({
+            message: newConversation ? 'Cuộc hội thoại mới đã được tạo.' : 'Cuộc hội thoại đã tồn tại.',
+            conversationId: conversation._id,
+            newConversation: newConversation
+        });
+
+    } catch (error) {
+        console.error('Lỗi khi tạo/lấy cuộc hội thoại:', error);
+        if (error.code === 11000) {
+            return res.status(409).json({ message: 'Cuộc hội thoại này đã tồn tại.', error: error.message });
+        }
+        res.status(500).json({ message: 'Lỗi server khi tạo/lấy cuộc hội thoại.', error: error.message });
+    }
+});
+
+// 2. Lấy danh sách TẤT CẢ cuộc hội thoại của một người dùng
+// Endpoint: GET /chat/conversations/user/:userId
+router.get('/chat/conversations/user/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(userId)) {
+            return res.status(400).json({ message: 'ID người dùng không hợp lệ.' });
+        }
+
+        console.log(`Backend: Fetching conversations for userId: ${userId}`);
+
+        // Bước 1: Chỉ tìm cuộc hội thoại, không populate gì cả
+        const rawConversations = await ConversationModel.find({
+            participants: userId
+        }).lean();
+        console.log("Backend: Raw conversations (before populate):", JSON.stringify(rawConversations, null, 2));
+
+        // Bước 2: Populate participants
+        const conversationsWithParticipants = await ConversationModel.find({
+            participants: userId
+        })
+            .populate({
+                path: 'participants',
+                select: 'name avatar_url role',
+                model: 'user'
+            }).lean();
+        console.log("Backend: Conversations with participants populated:", JSON.stringify(conversationsWithParticipants, null, 2));
+
+        // Bước 3: Populate lastMessage (dựa trên cùng một truy vấn)
+        const conversationsWithLastMessage = await ConversationModel.find({
+            participants: userId
+        })
+            .populate({
+                path: 'lastMessage',
+                select: 'message_text createdAt sender_id',
+                model: 'message'
+            }).lean();
+        console.log("Backend: Conversations with lastMessage populated:", JSON.stringify(conversationsWithLastMessage, null, 2));
+
+        // Bước 4: Populate cả hai và sort
+        const conversations = await ConversationModel.find({
+            participants: userId
+        })
+            .populate({
+                path: 'participants',
+                select: 'name avatar_url role',
+                model: 'user'
+            })
+            .populate({
+                path: 'lastMessage',
+                select: 'message_text createdAt sender_id',
+                model: 'message'
+            })
+            .sort({ updatedAt: -1 })
+            .lean();
+        console.log("Backend: Conversations with ALL populated (final query result):", JSON.stringify(conversations, null, 2));
+
+
+        const formattedConversations = conversations.map(conv => {
+            const otherParticipant = conv.participants.find(p => p._id.toString() !== userId);
+            return {
+                _id: conv._id,
+                lastMessage: conv.lastMessage, // Sẽ là đối tượng đã được populate
+                otherParticipant: otherParticipant ? {
+                    _id: otherParticipant._id,
+                    name: otherParticipant.name,
+                    avatar_url: otherParticipant.avatar_url,
+                    role: otherParticipant.role
+                } : null,
+            };
+        });
+
+        console.log("Backend: Formatted Conversations sent to frontend:", JSON.stringify(formattedConversations, null, 2));
+
+        res.status(200).json(formattedConversations);
+
+    } catch (error) {
+        console.error('Lỗi khi lấy danh sách cuộc hội thoại:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy danh sách cuộc hội thoại.', error: error.message });
+    }
+});
+
+// 3. Lấy tin nhắn của một cuộc hội thoại cụ thể
+// Endpoint: GET /chat/messages/conversation/:conversationId
+router.get('/chat/messages/conversation/:conversationId', async (req, res) => {
+    try {
+        const { conversationId } = req.params;
+
+        if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+            return res.status(400).json({ message: 'ID cuộc hội thoại không hợp lệ.' });
+        }
+
+        const messages = await MessageModel.find({ conversation_id: conversationId })
+            .populate({
+                path: 'sender_id',
+                select: 'name avatar_url', // Lấy tên và avatar của người gửi
+                model: 'user' // Đảm bảo đúng model
+            })
+            .sort({ createdAt: 1 }) // Sắp xếp theo thứ tự thời gian gửi tin nhắn (cũ nhất đến mới nhất)
+            .lean();
+
+        res.status(200).json(messages);
+
+    } catch (error) {
+        console.error('Lỗi khi lấy tin nhắn:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy tin nhắn.', error: error.message });
+    }
+});
+
+// 4. Gửi một tin nhắn mới
+// Endpoint: POST /chat/message
+// Body: { conversationId: "conv_id", senderId: "sender_id", messageText: "Hello!" }
+router.post('/chat/message', async (req, res) => {
+    try {
+        const { conversationId, senderId, messageText } = req.body;
+
+        if (!conversationId || !senderId || !messageText) {
+            return res.status(400).json({ message: 'Thiếu thông tin tin nhắn bắt buộc (conversationId, senderId, messageText).' });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(conversationId) || !mongoose.Types.ObjectId.isValid(senderId)) {
+            return res.status(400).json({ message: 'ID cuộc hội thoại hoặc người gửi không hợp lệ.' });
+        }
+
+        // Tạo tin nhắn mới
+        const newMessage = new MessageModel({
+            conversation_id: conversationId,
+            sender_id: senderId,
+            message_text: messageText,
+            status: 'sent'
+        });
+        await newMessage.save();
+
+        // Cập nhật updatedAt của Conversation VÀ lastMessage
+        await ConversationModel.findByIdAndUpdate(
+            conversationId,
+            {
+                updatedAt: Date.now(),
+                lastMessage: newMessage._id // <-- DÒNG NÀY RẤT QUAN TRỌNG
+            }
+        );
+
+        // Populate thông tin người gửi để frontend hiển thị ngay
+        const populatedMessage = await MessageModel.findById(newMessage._id)
+            .populate('sender_id', 'name avatar_url')
+            .lean();
+
+        res.status(201).json({ message: 'Tin nhắn đã được gửi thành công.', message: populatedMessage });
+
+    } catch (error) {
+        console.error('Lỗi khi gửi tin nhắn:', error);
+        res.status(500).json({ message: 'Lỗi server khi gửi tin nhắn.', error: error.message });
+    }
+});
+
+// 5. Cập nhật trạng thái tin nhắn (ví dụ: đã đọc)
+// Endpoint: PUT /chat/message/status/:messageId
+// Body: { status: "read" }
+router.put('/chat/message/status/:messageId', async (req, res) => {
+    try {
+        const { messageId } = req.params;
+        const { status } = req.body;
+
+        if (!status) {
+            return res.status(400).json({ message: 'Thiếu trạng thái mới.' });
+        }
+
+        if (!mongoose.Types.ObjectId.isValid(messageId)) {
+            return res.status(400).json({ message: 'ID tin nhắn không hợp lệ.' });
+        }
+
+        const validStatuses = ['sent', 'delivered', 'read'];
+        if (!validStatuses.includes(status)) {
+            return res.status(400).json({ message: `Trạng thái không hợp lệ: ${status}. Các trạng thái hợp lệ: ${validStatuses.join(', ')}.` });
+        }
+
+        const updatedMessage = await MessageModel.findByIdAndUpdate(
+            messageId,
+            { status: status },
+            { new: true } // Trả về tài liệu đã được cập nhật
+        ).lean();
+
+        if (!updatedMessage) {
+            return res.status(404).json({ message: 'Không tìm thấy tin nhắn để cập nhật trạng thái.' });
+        }
+
+        res.status(200).json({ message: 'Trạng thái tin nhắn đã được cập nhật.', message: updatedMessage });
+
+    } catch (error) {
+        console.error('Lỗi khi cập nhật trạng thái tin nhắn:', error);
+        res.status(500).json({ message: 'Lỗi server khi cập nhật trạng thái tin nhắn.', error: error.message });
     }
 });
