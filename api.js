@@ -1,6 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
-const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel } = require('./eatUpModel');
+const { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel,RestaurantModel } = require('./eatUpModel');
 const COMMON = require('./COMMON');
 
 const router = express.Router();
@@ -97,7 +97,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).send({ message: 'Thiếu thông tin đăng nhập!' });
         }
 
-        const user = await UserModel.findOne({ email, role });
+        const user = await UserModel.findOne({ email });
 
         if (!user || user.password_hash !== password_hash) {
             return res.status(401).send({ message: 'Thông tin tài khoản của bạn không chính xác!' });
@@ -149,7 +149,74 @@ router.put('/change-password/:id', async (req, res) => {
         res.status(500).send({ message: 'Lỗi server!', error: error.message });
     }
 });
+router.get('/list/users', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const customers = await UserModel.find({ role: 'User' });
+    res.send(customers);
+});
+router.get('/list/admins', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const admins = await UserModel.find({ role: 'Admin' });
+    res.send(admins);
+});
+router.get('/list/owner', async (req, res) => {
+    await mongoose.connect(COMMON.uri);
+    const admins = await UserModel.find({ role: 'Owner' });
+    res.send(admins);
+});
+//block admin
+router.put('/admins/:id/block', async (req, res) => {
+  const { block } = req.body; // true = khóa, false = mở khóa
 
+  try {
+    await mongoose.connect(COMMON.uri);
+
+    // Chỉ cập nhật block nếu user có role là 'Admin'
+    const admin = await UserModel.findOneAndUpdate(
+      { _id: req.params.id, role: 'Admin' },
+      { block: block },
+      { new: true }
+    );
+
+    if (!admin) {
+      return res.status(404).json({ message: 'Không tìm thấy admin để cập nhật.' });
+    }
+
+    res.status(200).json({
+      message: block ? 'Đã khóa admin.' : 'Đã mở khóa admin.',
+      admin,
+    });
+  } catch (error) {
+    console.error('Lỗi khi cập nhật trạng thái admin:', error);
+    res.status(500).json({ message: 'Lỗi server.', error: error.message });
+  }
+});
+// block user
+router.put('/users/:id/block', async (req, res) => {
+  const { block } = req.body; // true = chặn, false = bỏ chặn
+
+  try {
+    await mongoose.connect(COMMON.uri);
+
+    const user = await UserModel.findByIdAndUpdate(
+      req.params.id,
+      { block: block },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: 'Không tìm thấy người dùng.' });
+    }
+
+    res.status(200).json({
+      message: block ? 'Đã chặn người dùng.' : 'Đã bỏ chặn người dùng.',
+      user,
+    });
+  } catch (error) {
+    console.error('Lỗi khi chặn người dùng:', error);
+    res.status(500).json({ message: 'Lỗi server.', error: error.message });
+  }
+});
 // ------------------ PRODUCT ------------------
 
 // Lấy tất cả sản phẩm
@@ -934,6 +1001,20 @@ router.put('/order/cancel/:order_id', async (req, res) => {
         // mongoose.connection.close();
     }
 });
+// Lấy tất cả đơn hàng (admin hoặc user dùng để xem lịch sử đơn hàng)
+router.get('/orders', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+
+        const orders = await OrderModel.find().sort({ createdAt: -1 }).lean();
+
+        res.status(200).json(orders);
+    } catch (error) {
+        console.error('Lỗi khi lấy tất cả đơn hàng:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy đơn hàng', error: error.message });
+    }
+});
+
 
 // =========================================================
 //                  VOUCHER ROUTES
@@ -1064,6 +1145,112 @@ router.put('/vouchers/increase-used-count/:id', async (req, res) => {
         res.status(500).json({ message: 'Lỗi server khi cập nhật voucher.' });
     }
 });
+//add vaucher
+router.post('/vouchers', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+
+    const {
+      code,
+      description,
+      discount_type,
+      discount_value,
+      min_order_amount,
+      max_discount_amount,
+      start_date,
+      end_date,
+      usage_limit,
+      active,
+      user_specific
+    } = req.body;
+
+    // Kiểm tra các trường bắt buộc
+    if (!code || !discount_type || !discount_value || !start_date || !end_date) {
+      return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin bắt buộc.' });
+    }
+
+    // Kiểm tra xem mã voucher đã tồn tại chưa
+    const existing = await VoucherModel.findOne({ code: code.toUpperCase() });
+    if (existing) {
+      return res.status(400).json({ message: 'Mã voucher đã tồn tại!' });
+    }
+
+    // Tạo mới voucher
+    const voucher = new VoucherModel({
+      code: code.toUpperCase(),
+      description,
+      discount_type,
+      discount_value,
+      min_order_amount,
+      max_discount_amount,
+      start_date: new Date(start_date),
+      end_date: new Date(end_date),
+      usage_limit,
+      active,
+      used_count: 0,
+      user_specific
+    });
+
+    await voucher.save();
+    res.status(201).json({ message: 'Tạo voucher thành công!', voucher });
+
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      message: 'Lỗi server khi tạo voucher',
+      error: error.message
+    });
+  }
+});
+//sửa voucher
+router.put('/vouchers/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+
+        const { id } = req.params;
+        const updatedData = req.body;
+
+        // Không cho sửa mã code (nếu bạn muốn cho sửa thì bỏ dòng này)
+        delete updatedData.code;
+
+        const updatedVoucher = await VoucherModel.findByIdAndUpdate(
+            id,
+            updatedData,
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedVoucher) {
+            return res.status(404).json({ message: 'Voucher không tồn tại' });
+        }
+
+        res.status(200).json({ message: 'Voucher đã được cập nhật', voucher: updatedVoucher });
+
+    } catch (error) {
+        console.error("Lỗi khi cập nhật voucher:", error);
+        res.status(500).json({ message: 'Lỗi server khi cập nhật voucher', error: error.message });
+    }
+});
+//xóa voucher
+router.delete('/vouchers/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+
+        const { id } = req.params;
+        const deleted = await VoucherModel.findByIdAndDelete(id);
+
+        if (!deleted) {
+            return res.status(404).json({ message: 'Không tìm thấy voucher để xóa' });
+        }
+
+        res.status(200).json({ message: 'Đã xóa voucher thành công' });
+
+    } catch (error) {
+        console.error("Lỗi khi xóa voucher:", error);
+        res.status(500).json({ message: 'Lỗi server khi xóa voucher', error: error.message });
+    }
+});
+
+
 
 
 // =========================================================
@@ -1118,7 +1305,7 @@ router.put('/admin/order/update-status/:order_id', async (req, res) => {
         // Định nghĩa các trạng thái MÀ FRONTEND ĐANG GỬI LÊN VÀ BACKEND CHẤP NHẬN
         // Đây là nơi bạn định nghĩa các trạng thái hợp lệ mà đơn hàng có thể chuyển sang.
         // Ví dụ: 'Processing', 'Delivered', 'Cancelled'
-        const validStatusesForUpdate = ['Processing', 'Delivered', 'Cancelled']; // ĐÃ SỬA TẠI ĐÂY!
+        const validStatusesForUpdate = ['Processed', 'AdminProcessing', 'Delivered', 'Cancelled']; // ĐÃ SỬA TẠI ĐÂY!
         if (!validStatusesForUpdate.includes(new_status)) {
             return res.status(400).json({ message: `Trạng thái không hợp lệ: ${new_status}. Chỉ chấp nhận: ${validStatusesForUpdate.join(', ')} cho việc cập nhật.` });
         }
@@ -1244,7 +1431,80 @@ router.get('/restaurant/:id', async (req, res) => {
         res.status(500).json({ message: 'Lỗi server khi lấy thông tin nhà hàng.', error: error.message });
     }
 });
+//0. danh sach nhà hàng
+router.get('/restaurants', async (req, res) => {
+  try {
+    const restaurants = await UserModel.find({ role: 'Admin' }); // hoặc { role: { $in: ['Owner', 'Admin'] } }
+    res.status(200).json(restaurants);
+  } catch (err) {
+    console.error('Error fetching restaurants:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+// 1. Tạo nhà hàng
+router.post('/restaurants', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const restaurant = new RestaurantModel(req.body);
+        await restaurant.save();
+        res.status(201).json(restaurant);
+    } catch (error) {
+        res.status(500).json({ message: 'Lỗi khi tạo nhà hàng.', error: error.message });
+    }
+});
 
+// 2. Lấy danh sách nhà hàng
+// router.get('/restaurants', async (req, res) => {
+//     try {
+//         await mongoose.connect(COMMON.uri);
+//         const restaurant = await RestaurantModel.find();
+//         res.status(200).json(restaurant);
+//     } catch (error) {
+//         res.status(500).json({ message: 'Lỗi khi lấy danh sách nhà hàng.', error: error.message });
+//     }
+// });
+
+// 3. Lấy chi tiết nhà hàng theo ID
+router.get('/restaurants/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const restaurant = await RestaurantModel.findById(req.params.id);
+        if (!restaurant) {
+            return res.status(404).json({ message: 'Không tìm thấy nhà hàng.' });
+        }
+        res.status(200).json(restaurant);
+    } catch (error) {
+        res.status(500).json({ message: 'Lỗi khi lấy thông tin nhà hàng.', error: error.message });
+    }
+});
+
+// 4. Cập nhật nhà hàng theo ID
+router.put('/restaurants/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const restaurant = await RestaurantModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        if (!restaurant) {
+            return res.status(404).json({ message: 'Không tìm thấy nhà hàng để cập nhật.' });
+        }
+        res.status(200).json(restaurant);
+    } catch (error) {
+        res.status(500).json({ message: 'Lỗi khi cập nhật nhà hàng.', error: error.message });
+    }
+});
+
+// 5. Xóa nhà hàng
+router.delete('/restaurants/:id', async (req, res) => {
+    try {
+        await mongoose.connect(COMMON.uri);
+        const restaurant = await RestaurantModel.findByIdAndDelete(req.params.id);
+        if (!restaurant) {
+            return res.status(404).json({ message: 'Không tìm thấy nhà hàng để xóa.' });
+        }
+        res.status(200).json({ message: 'Xóa nhà hàng thành công.' });
+    } catch (error) {
+        res.status(500).json({ message: 'Lỗi khi xóa nhà hàng.', error: error.message });
+    }
+});
 
 router.post('/reviews/submit', async (req, res) => {
     // Đảm bảo kết nối MongoDB đã được thiết lập (hoặc bỏ đi nếu đã có kết nối toàn cục)
@@ -1765,3 +2025,303 @@ router.get('/admin/dashboard-stats/by-restaurant/:restaurant_id', async (req, re
         // mongoose.connection.close();
     }
 });
+
+function getStartOfPeriod(period) {
+  const now = new Date();
+  switch (period) {
+    case 'week': {
+      const day = now.getDay();
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() - day);
+    }
+    case 'month':
+      return new Date(now.getFullYear(), now.getMonth(), 1);
+    case 'quarter':
+      return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    case 'year':
+      return new Date(now.getFullYear(), 0, 1);
+    default:
+      return new Date(0); // fallback: từ đầu thời gian
+  }
+}
+
+
+router.get('/admin/revenue-summary', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+    const orders = await OrderModel.find({ status: { $in: ['Delivered', 'Rated'] } });
+    const restaurants = await RestaurantModel.find();
+    const restaurantMap = {};
+    restaurants.forEach(r => restaurantMap[r._id.toString()] = r.name);
+
+    const periods = ['week', 'month', 'quarter', 'year'];
+    const results = {};
+
+    for (const period of periods) {
+      const startDate = getStartOfPeriod(period);
+      const filteredOrders = orders.filter(order => new Date(order.updatedAt) >= startDate);
+      const revenueByRestaurant = {};
+
+      filteredOrders.forEach(order => {
+        const rid = order.restaurant_id;
+        revenueByRestaurant[rid] = (revenueByRestaurant[rid] || 0) + (order.total_price || 0);
+      });
+
+      results[period] = {
+        totalRevenue: Object.values(revenueByRestaurant).reduce((sum, val) => sum + val, 0),
+        restaurants: Object.entries(revenueByRestaurant).map(([rid, revenue]) => ({
+          restaurant_id: rid,
+          restaurant_name: restaurantMap[rid] || 'Unknown',
+          revenue
+        }))
+      };
+    }
+
+    res.status(200).json({
+      message: 'Thống kê tổng doanh thu theo từng khoảng thời gian.',
+      data: results
+    });
+  } catch (err) {
+    console.error('Lỗi khi thống kê doanh thu:', err);
+    res.status(500).json({ message: 'Lỗi server khi thống kê doanh thu.', error: err.message });
+  }
+});
+
+router.get('/admin/order-count-summary', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+    const orders = await OrderModel.find({ status: { $in: ['Delivered', 'Rated'] } });
+    const restaurants = await RestaurantModel.find();
+    const restaurantMap = {};
+    restaurants.forEach(r => restaurantMap[r._id.toString()] = r.name);
+
+    const periods = ['week', 'month', 'quarter', 'year'];
+    const results = {};
+
+    for (const period of periods) {
+      const startDate = getStartOfPeriod(period);
+      const filteredOrders = orders.filter(order => new Date(order.updatedAt) >= startDate);
+      const countByRestaurant = {};
+
+      filteredOrders.forEach(order => {
+        const rid = order.restaurant_id;
+        countByRestaurant[rid] = (countByRestaurant[rid] || 0) + 1;
+      });
+
+      results[period] = {
+        totalOrders: Object.values(countByRestaurant).reduce((sum, val) => sum + val, 0),
+        restaurants: Object.entries(countByRestaurant).map(([rid, orderCount]) => ({
+          restaurant_id: rid,
+          restaurant_name: restaurantMap[rid] || 'Unknown',
+          orderCount
+        }))
+      };
+    }
+
+    res.status(200).json({
+      message: 'Thống kê tổng số đơn hàng theo từng khoảng thời gian.',
+      data: results
+    });
+  } catch (err) {
+    console.error('Lỗi khi thống kê số đơn hàng:', err);
+    res.status(500).json({ message: 'Lỗi server khi thống kê số đơn hàng.', error: err.message });
+  }
+});
+
+
+//thống kê tổng doanh thu hệ thống
+// doanh thu hệ thống
+router.get('/admin/total-revenue', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+
+    const completedOrders = await OrderModel.find({ status: { $in: ['Delivered', 'Rated'] } }).lean();
+    const totalRevenue = completedOrders.reduce((sum, order) => sum + (order.total_amount || 0), 0);
+
+    res.status(200).json({
+      totalRevenue,
+      totalOrders: completedOrders.length
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Lỗi server khi tính tổng doanh thu', error: err.message });
+  }
+});
+//Dashboard tổng hợp cho Admin
+router.get('/admin/dashboard', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+
+    const [totalUsers, totalRestaurants, totalProducts, totalOrders, totalReviews] = await Promise.all([
+      UserModel.countDocuments({ role: 'User' }),
+      RestaurantModel.countDocuments(),
+      ProductModel.countDocuments(),
+      OrderModel.countDocuments(),
+      ReviewSModel.countDocuments()
+    ]);
+
+    const totalRevenue = await OrderModel.aggregate([
+      { $match: { status: { $in: ['Delivered', 'Rated'] } } },
+      { $group: { _id: null, total: { $sum: '$total_amount' } } }
+    ]);
+
+    res.json({
+      totalUsers,
+      totalAdmins: await UserModel.countDocuments({ role: 'Admin' }),
+      totalRestaurants,
+      totalProducts,
+      totalOrders,
+      totalReviews,
+      totalRevenue: totalRevenue[0]?.total || 0
+    });
+
+  } catch (error) {
+    res.status(500).json({ message: 'Lỗi server khi lấy dashboard admin', error: error.message });
+  }
+});
+
+function getStartOfPeriod(period) {
+  const now = dayjs();
+  switch (period) {
+    case 'week':
+      return now.startOf('week').toDate();
+    case 'month':
+      return now.startOf('month').toDate();
+    case 'quarter':
+      const quarter = Math.floor(now.month() / 3);
+      return dayjs(`${now.year()}-${quarter * 3 + 1}-01`).startOf('month').toDate();
+    case 'year':
+      return now.startOf('year').toDate();
+    default:
+      return now.startOf('month').toDate();
+  }
+}
+//Thống kê đơn hàng theo mốc thời gian 
+router.get('/admin/order-count-summary', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+    const orders = await OrderModel.find({ status: { $in: ['Delivered', 'Rated'] } });
+    const restaurants = await RestaurantModel.find();
+    const restaurantMap = {};
+    restaurants.forEach(r => restaurantMap[r._id.toString()] = r.name);
+
+    const now = new Date();
+    const results = {};
+
+    const getStartOfPeriod = (period) => {
+      const date = new Date();
+      switch (period) {
+        case 'week':
+          const day = date.getDay(); // 0 (Sun) - 6 (Sat)
+          const diff = date.getDate() - day + (day === 0 ? -6 : 1); // Bắt đầu từ thứ 2
+          return new Date(date.setDate(diff)).setHours(0, 0, 0, 0);
+        case 'month':
+          return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+        case 'quarter':
+          const quarter = Math.floor(date.getMonth() / 3);
+          return new Date(date.getFullYear(), quarter * 3, 1).getTime();
+        case 'year':
+          return new Date(date.getFullYear(), 0, 1).getTime();
+        default:
+          return now.getTime();
+      }
+    };
+
+    const periods = ['week', 'month', 'quarter', 'year'];
+
+    for (const period of periods) {
+      const startTime = getStartOfPeriod(period);
+      const filteredOrders = orders.filter(order => new Date(order.updatedAt).getTime() >= startTime);
+
+      const countByRestaurant = {};
+
+      filteredOrders.forEach(order => {
+        const rid = order.restaurant_id?.toString();
+        if (!rid) return;
+        countByRestaurant[rid] = (countByRestaurant[rid] || 0) + 1;
+      });
+
+      results[period] = {
+        totalOrders: Object.values(countByRestaurant).reduce((sum, val) => sum + val, 0),
+        restaurants: Object.entries(countByRestaurant).map(([rid, orderCount]) => ({
+          restaurant_id: rid,
+          restaurant_name: restaurantMap[rid] || 'Unknown',
+          orderCount
+        }))
+      };
+    }
+
+    res.status(200).json({
+      message: 'Thống kê số đơn hàng toàn hệ thống.',
+      data: results
+    });
+  } catch (err) {
+    console.error('Lỗi thống kê đơn hàng:', err);
+    res.status(500).json({ message: 'Lỗi server', error: err.message });
+  }
+});
+// Thống kê doanh thu theo mốc thời gian
+router.get('/admin/revenue-summary', async (req, res) => {
+  try {
+    await mongoose.connect(COMMON.uri);
+    const orders = await OrderModel.find({ status: { $in: ['Delivered', 'Rated'] } });
+    const restaurants = await UserModel.find();
+    const restaurantMap = {};
+    restaurants.forEach(r => restaurantMap[r._id.toString()] = r.name);
+
+    const now = new Date();
+    const results = {};
+
+    const getStartOfPeriod = (period) => {
+      const date = new Date();
+      switch (period) {
+        case 'week':
+          const day = date.getDay();
+          const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+          return new Date(date.setDate(diff)).setHours(0, 0, 0, 0);
+        case 'month':
+          return new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+        case 'quarter':
+          const quarter = Math.floor(date.getMonth() / 3);
+          return new Date(date.getFullYear(), quarter * 3, 1).getTime();
+        case 'year':
+          return new Date(date.getFullYear(), 0, 1).getTime();
+        default:
+          return now.getTime();
+      }
+    };
+
+    const periods = ['week', 'month', 'quarter', 'year'];
+
+    for (const period of periods) {
+      const startTime = getStartOfPeriod(period);
+      const filteredOrders = orders.filter(order => new Date(order.updatedAt).getTime() >= startTime);
+
+      const revenueByRestaurant = {};
+
+      filteredOrders.forEach(order => {
+        const rid = order.restaurant_id?.toString();
+        if (!rid) return;
+        revenueByRestaurant[rid] = (revenueByRestaurant[rid] || 0) + (order.total_price || 0);
+      });
+
+      results[period] = {
+        totalRevenue: Object.values(revenueByRestaurant).reduce((sum, val) => sum + val, 0),
+        restaurants: Object.entries(revenueByRestaurant).map(([rid, revenue]) => ({
+          restaurant_id: rid,
+          restaurant_name: restaurantMap[rid] || 'Unknown',
+          revenue
+        }))
+      };
+    }
+
+    res.status(200).json({
+      message: 'Thống kê doanh thu toàn hệ thống.',
+      data: results
+    });
+  } catch (err) {
+    console.error('Lỗi thống kê doanh thu:', err);
+    res.status(500).json({ message: 'Lỗi server', error: err.message });
+  }
+});
+
+
+

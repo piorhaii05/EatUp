@@ -18,6 +18,7 @@ const EatUpSchema = new mongoose.Schema({
         type: Number,
         default: 0
     },
+    block: { type: Boolean, default: false },
 });
 
 const ProductSchema = new mongoose.Schema({
@@ -125,7 +126,19 @@ const ReviewSchema = new mongoose.Schema({
     comment: { type: String, default: '' },
     createdAt: { type: Date, default: Date.now },
 });
+const RestaurantSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  description: { type: String, default: '' },
+  address: { type: String, required: true },
+  open_hours: { type: String, default: '8:00 - 22:00' },
+  phone: { type: String, required: true },
+  avatar_url: { 
+    type: String, 
+    default: 'https://cdn-icons-png.flaticon.com/512/3132/3132693.png' 
+  }
+}, { timestamps: true });
 
+const RestaurantModel = mongoose.model('restaurant', RestaurantSchema);
 const FavoriteModel = mongoose.model('favorite', FavoriteSchema);
 const CartModel = mongoose.model('cart', CartSchema);
 const UserModel = mongoose.model('user', EatUpSchema);
@@ -137,4 +150,4 @@ const OrderModel = mongoose.model('order', OrderSchema);
 const VoucherModel = mongoose.model('voucher', VoucherSchema);
 const ReviewSModel = mongoose.model('review', ReviewSchema);
 
-module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel };
+module.exports = { UserModel, ProductModel, CategoryModel, CartModel, FavoriteModel, AddressModel, BankModel, OrderModel, VoucherModel, ReviewSModel, RestaurantModel };
