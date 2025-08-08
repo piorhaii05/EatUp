@@ -6,11 +6,18 @@ const COMMON = require('./COMMON');
 const router = express.Router();
 
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const nodemailer = require('nodemailer');
+const querystring = require('qs');
 
 const multer = require('multer');
 const path = require('path');
 
+const moment = require('moment');
+
 module.exports = router;
+
+
 
 // Upload ảnh
 // Khởi tạo multer để lưu trữ file
@@ -28,6 +35,126 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage: storage });
+
+// Ngân hàng: NCB
+// Số thẻ: 9704198526191432198
+// Tên chủ thẻ:NGUYEN VAN A
+// Ngày phát hành:07/15
+// Mật khẩu OTP:123456
+
+
+const tmnCode = process.env.VNP_TmnCode || 'ZA72WFK8';
+const hashSecret = process.env.VNP_HashSecret || '1FH3PB9QFWE2J7LWVF576X0VKD1NPIHL';
+const vnpUrl = process.env.VNP_Url || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+const returnUrl = process.env.VNP_ReturnUrl || 'https://api.eatup.com/api/vnpay/vnpay_return';
+
+function sortObject(obj) {
+    const sorted = {};
+    const keys = Object.keys(obj).sort();
+    for (let key of keys) {
+        sorted[key] = obj[key];
+    }
+    return sorted;
+}
+
+// =================================================================
+// ⚠️ TÍCH HỢP VNPAY START
+// =================================================================
+
+// Route để tạo URL thanh toán VNPay
+// Endpoint: POST /vnpay/create_payment_url
+router.post('/vnpay/create_payment_url', (req, res) => {
+    const { amount, orderId, orderInfo } = req.body;
+
+    if (!amount || !orderId) {
+        return res.status(400).json({ message: 'Thiếu thông tin: amount hoặc orderId.' });
+    }
+
+    const createDate = moment().format('YYYYMMDDHHmmss');
+    const ipAddr = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    let vnp_Params = {
+        'vnp_Version': '2.1.0',
+        'vnp_Command': 'pay',
+        'vnp_TmnCode': tmnCode,
+        'vnp_Locale': 'vn',
+        'vnp_CurrCode': 'VND',
+        'vnp_TxnRef': orderId,
+        'vnp_OrderInfo': orderInfo || 'Thanh toán đơn hàng',
+        'vnp_OrderType': 'other',
+        'vnp_Amount': amount * 100,
+        'vnp_ReturnUrl': returnUrl,
+        'vnp_IpAddr': ipAddr,
+        'vnp_CreateDate': createDate,
+        'vnp_ExpireDate': moment().add(15, 'minutes').format('YYYYMMDDHHmmss')
+    };
+
+    vnp_Params = sortObject(vnp_Params);
+    const signData = querystring.stringify(vnp_Params, { encode: false });
+
+    const hmac = crypto.createHmac('sha512', hashSecret.trim());
+    const signed = hmac.update(signData).digest('hex');
+    vnp_Params['vnp_SecureHash'] = signed;
+
+    // const paymentUrl = `${vnpUrl}?${querystring.stringify(vnp_Params, { encode: false })}`;
+    const paymentUrl = `${vnpUrl}?${querystring.stringify(vnp_Params, { encode: true })}`;
+
+    return res.status(200).json({ paymentUrl });
+});
+
+// ==================================
+// ✅ Xử lý trả về từ VNPay (Return)
+// ==================================
+router.get('/vnpay/vnpay_return', async (req, res) => {
+    let vnp_Params = req.query;
+    const secureHash = vnp_Params['vnp_SecureHash'];
+
+    delete vnp_Params['vnp_SecureHash'];
+    delete vnp_Params['vnp_SecureHashType'];
+
+    vnp_Params = sortObject(vnp_Params);
+    const signData = querystring.stringify(vnp_Params, { encode: false });
+
+    const hmac = crypto.createHmac('sha512', hashSecret);
+    const signed = hmac.update(signData).digest('hex');
+
+    // Debug log
+    console.log('HashSecret:', hashSecret);
+    console.log('Chuỗi signData:', signData);
+    console.log('Hash từ VNPay:', secureHash);
+    console.log('Hash từ server:', signed);
+
+    if (secureHash === signed) {
+        const orderId = vnp_Params['vnp_TxnRef'];
+        const rspCode = vnp_Params['vnp_ResponseCode'];
+
+        try {
+            await mongoose.connect(COMMON.uri);
+            const updatedOrder = await OrderModel.findByIdAndUpdate(
+                orderId,
+                {
+                    paymentStatus: rspCode === '00' ? 'Paid' : 'Failed',
+                    paymentMethod: 'VNPAY',
+                    paymentDetails: vnp_Params
+                },
+                { new: true }
+            );
+
+            if (rspCode === '00' && updatedOrder) {
+                return res.status(200).send(`<h1>Thanh toán thành công!</h1><p>Mã đơn hàng: ${orderId}</p>`);
+            } else {
+                return res.status(400).send(`<h1>Thanh toán thất bại!</h1><p>Mã đơn hàng: ${orderId}, Mã lỗi: ${rspCode}</p>`);
+            }
+        } catch (err) {
+            console.error('Lỗi khi cập nhật đơn hàng:', err);
+            return res.status(500).send('<h1>Lỗi máy chủ!</h1>');
+        }
+    } else {
+        console.warn('Chữ ký không hợp lệ!');
+        return res.status(400).send('<h1>Lỗi!</h1><p>Chữ ký không hợp lệ.</p>');
+    }
+});
+
 
 // Route để xử lý tải lên ảnh
 router.post('/upload', upload.single('image'), (req, res) => {
@@ -101,7 +228,22 @@ router.post('/login', async (req, res) => {
 
         const user = await UserModel.findOne({ email, role });
 
-        if (!user || user.password_hash !== password_hash) {
+        // --- BƯỚC 1: KIỂM TRA USER CÓ TỒN TẠI KHÔNG ---
+        if (!user) {
+            return res.status(401).send({ message: 'Thông tin tài khoản của bạn không chính xác!' });
+        }
+
+        // --- BƯỚC 2: KIỂM TRA TRẠNG THÁI 'block' ---
+        // Nếu trường 'block' là true, tức là tài khoản bị khóa
+        if (user.block) {
+            return res.status(403).send({ message: 'Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên!' });
+        }
+
+        // --- BƯỚC 3: KIỂM TRA MẬT KHẨU ---
+        // LƯU Ý: Hiện tại bạn đang so sánh chuỗi password_hash trực tiếp.
+        // Đây KHÔNG PHẢI là cách an toàn. Bạn NÊN sử dụng bcrypt để so sánh mật khẩu đã mã hóa.
+        // Ví dụ: if (!(await bcrypt.compare(password_hash, user.password_hash))) { ... }
+        if (user.password_hash !== password_hash) {
             return res.status(401).send({ message: 'Thông tin tài khoản của bạn không chính xác!' });
         }
 
@@ -116,9 +258,10 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 avatar_url: user.avatar_url,
                 gender: user.gender || 'Chưa cập nhập',
-                // THÊM HAI TRƯỜNG NÀY VÀO ĐÂY:
-                rating: user.rating, // Đảm bảo lấy giá trị rating từ đối tượng user
-                num_reviews: user.num_reviews, // Đảm bảo lấy giá trị num_reviews từ đối tượng user
+                rating: user.rating,
+                num_reviews: user.num_reviews,
+                // Không cần gửi trường 'block' về frontend nếu bạn không muốn hiển thị
+                // hoặc xử lý đặc biệt ở phía client
             }
         });
 
@@ -204,17 +347,28 @@ router.put('/product/:id', async (req, res) => {
 router.get('/product/highest-rated', async (req, res) => {
     try {
         await mongoose.connect(COMMON.uri);
-        const products = await ProductModel.find({
+        const { city } = req.query;
+
+        let query = {
             status: true,
             rating: { $gt: 4.5 }
-        })
+        };
+
+        // Nếu city tồn tại và không phải là chuỗi rỗng, thì mới lọc
+        if (city && city.trim() !== '') {
+            const restaurantsInCity = await AddressModel.find({ city: city }, { user_id: 1, _id: 0 }).lean();
+            const restaurantIds = restaurantsInCity.map(r => r.user_id);
+            query.restaurant_id = { $in: restaurantIds };
+        }
+
+        const products = await ProductModel.find(query)
             .sort({ rating: -1 })
             .limit(10);
 
-        res.send(products);
+        res.status(200).json(products);
     } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+        console.error('Lỗi khi lấy sản phẩm đánh giá cao:', error);
+        res.status(500).json({ message: 'Lỗi server!', error: error.message });
     }
 });
 
@@ -242,14 +396,27 @@ router.get('/admin/product/:id', async (req, res) => {
 router.get('/product/popular', async (req, res) => {
     try {
         await mongoose.connect(COMMON.uri);
-        const products = await ProductModel.find({ status: true })
-            .sort({ purchases: -1 }) // Giảm dần theo purchases
-            .limit(7);               // Lấy đúng 7 sản phẩm
+        const { city } = req.query;
 
-        res.send(products);
+        let query = {
+            status: true
+        };
+
+        // Nếu city tồn tại và không phải là chuỗi rỗng, thì mới lọc
+        if (city && city.trim() !== '') {
+            const restaurantsInCity = await AddressModel.find({ city: city }, { user_id: 1, _id: 0 }).lean();
+            const restaurantIds = restaurantsInCity.map(r => r.user_id);
+            query.restaurant_id = { $in: restaurantIds };
+        }
+
+        const products = await ProductModel.find(query)
+            .sort({ purchases: -1 })
+            .limit(7);
+
+        res.status(200).json(products);
     } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+        console.error('Lỗi khi lấy sản phẩm phổ biến:', error);
+        res.status(500).json({ message: 'Lỗi server!', error: error.message });
     }
 });
 
@@ -257,18 +424,28 @@ router.get('/product/popular', async (req, res) => {
 router.get('/product/newest', async (req, res) => {
     try {
         await mongoose.connect(COMMON.uri);
+        const { city } = req.query;
 
-        const products = await ProductModel.find({ status: true })
-            .sort({ createdAt: -1 })  // Sắp xếp theo thời gian thêm mới nhất
-            .limit(10);               // Giới hạn số lượng, có thể điều chỉnh
+        let query = {
+            status: true
+        };
 
-        res.send(products);
+        // Nếu city tồn tại và không phải là chuỗi rỗng, thì mới lọc
+        if (city && city.trim() !== '') {
+            const restaurantsInCity = await AddressModel.find({ city: city }, { user_id: 1, _id: 0 }).lean();
+            const restaurantIds = restaurantsInCity.map(r => r.user_id);
+            query.restaurant_id = { $in: restaurantIds };
+        }
+
+        const newestProducts = await ProductModel.find(query)
+            .sort({ createAt: -1 })
+            .limit(10);
+        res.status(200).json(newestProducts);
     } catch (error) {
-        console.error(error);
-        res.status(500).send({ message: 'Lỗi server!', error: error.message });
+        console.error('Lỗi khi lấy sản phẩm mới nhất:', error);
+        res.status(500).json({ message: 'Lỗi server.' });
     }
 });
-
 // router.get('/product/search', async (req, res) => {
 //     console.log('Received search request');
 //     const { name } = req.query;
@@ -351,62 +528,124 @@ router.get('/category', async (req, res) => {
 
 // Lấy giỏ hàng theo user_id
 router.get('/cart/:user_id', async (req, res) => {
-    await mongoose.connect(COMMON.uri);
-    const cart = await CartModel.findOne({ user_id: req.params.user_id });
+    try {
+        await mongoose.connect(COMMON.uri);
+        const cart = await CartModel.findOne({ user_id: req.params.user_id });
 
-    if (!cart || cart.items.length === 0) {
-        return res.send({ user_id: req.params.user_id, items: [] });
+        if (!cart || cart.items.length === 0) {
+            return res.send({ user_id: req.params.user_id, items: [] });
+        }
+
+        // Tạo một đối tượng Map để lưu trữ thông tin nhà hàng và sản phẩm
+        const detailedItemsMap = {};
+
+        // Lấy thông tin chi tiết của từng sản phẩm và nhà hàng liên quan
+        for (const item of cart.items) {
+            const product = await ProductModel.findById(item.product_id);
+            if (product) {
+                const restaurant = await UserModel.findById(product.restaurant_id);
+
+                detailedItemsMap[item.product_id] = {
+                    product_id: item.product_id,
+                    quantity: item.quantity,
+                    product_name: product.name,
+                    product_image: product.image_url,
+                    product_price: product.price,
+                    restaurant_id: product.restaurant_id,
+                    restaurant_name: restaurant?.name || 'Không xác định'
+                };
+            }
+        }
+
+        // Chuyển đổi Map thành mảng để gửi về
+        const detailedItems = Object.values(detailedItemsMap);
+
+        res.send({
+            user_id: req.params.user_id,
+            items: detailedItems
+        });
+    } catch (error) {
+        console.error('Lỗi khi lấy giỏ hàng:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy giỏ hàng.', error: error.message });
     }
-
-    // Map lại danh sách sản phẩm kèm thông tin chi tiết
-    const detailedItems = await Promise.all(cart.items.map(async (item) => {
-        const product = await ProductModel.findById(item.product_id);
-        return {
-            product_id: item.product_id,
-            quantity: item.quantity,
-            product_name: product?.name || '',
-            product_image: product?.image_url || '',
-            product_price: product?.price || 0
-        };
-    }));
-
-    res.send({
-        user_id: req.params.user_id,
-        items: detailedItems
-    });
 });
 
 
 // Thêm hoặc cập nhật sản phẩm trong giỏ hàng
+// router.post('/cart/add', async (req, res) => {
+//     await mongoose.connect(COMMON.uri);
+//     const { user_id, product_id, quantity } = req.body;
+
+//     const product = await ProductModel.findById(product_id);
+//     if (!product) {
+//         return res.status(404).send({ message: 'Sản phẩm không tồn tại' });
+//     }
+
+//     const restaurant_id = product.restaurant_id;
+
+//     let cart = await CartModel.findOne({ user_id });
+
+//     if (!cart) {
+//         cart = await CartModel.create({
+//             user_id,
+//             items: [{ product_id, quantity, restaurant_id }]
+//         });
+//     } else {
+//         const existingItem = cart.items.find(item => item.product_id === product_id);
+//         if (existingItem) {
+//             existingItem.quantity += quantity;
+//         } else {
+//             cart.items.push({ product_id, quantity, restaurant_id });
+//         }
+//         await cart.save();
+//     }
+
+//     res.send(cart);
+// });
+
 router.post('/cart/add', async (req, res) => {
-    await mongoose.connect(COMMON.uri);
-    const { user_id, product_id, quantity } = req.body;
+    try {
+        const { user_id, product_id, quantity } = req.body;
 
-    const product = await ProductModel.findById(product_id);
-    if (!product) {
-        return res.status(404).send({ message: 'Sản phẩm không tồn tại' });
-    }
+        // 1. Kiểm tra đầu vào hợp lệ
+        if (!user_id || !product_id || quantity === undefined) {
+            return res.status(400).json({ message: 'Thiếu thông tin bắt buộc: user_id, product_id, hoặc quantity.' });
+        }
+        if (!mongoose.Types.ObjectId.isValid(user_id) || !mongoose.Types.ObjectId.isValid(product_id)) {
+            return res.status(400).json({ message: 'ID người dùng hoặc sản phẩm không hợp lệ.' });
+        }
 
-    const restaurant_id = product.restaurant_id;
+        // 2. Tìm hoặc tạo giỏ hàng cho người dùng
+        let cart = await CartModel.findOne({ user_id });
 
-    let cart = await CartModel.findOne({ user_id });
+        if (!cart) {
+            // Tạo giỏ hàng mới nếu chưa có
+            cart = new CartModel({
+                user_id,
+                items: [{ product_id, quantity }]
+            });
+            await cart.save();
+            return res.status(201).json({ message: 'Giỏ hàng mới đã được tạo và sản phẩm đã được thêm.', cart });
+        }
 
-    if (!cart) {
-        cart = await CartModel.create({
-            user_id,
-            items: [{ product_id, quantity, restaurant_id }]
-        });
-    } else {
-        const existingItem = cart.items.find(item => item.product_id === product_id);
-        if (existingItem) {
-            existingItem.quantity += quantity;
+        // 3. Giỏ hàng đã tồn tại, kiểm tra sản phẩm
+        const existingItemIndex = cart.items.findIndex(item => item.product_id.toString() === product_id);
+
+        if (existingItemIndex > -1) {
+            // Sản phẩm đã có trong giỏ, tăng số lượng
+            cart.items[existingItemIndex].quantity += quantity;
         } else {
-            cart.items.push({ product_id, quantity, restaurant_id });
+            // Sản phẩm chưa có, thêm mới vào giỏ
+            cart.items.push({ product_id, quantity });
         }
         await cart.save();
-    }
 
-    res.send(cart);
+        res.status(200).json({ message: 'Sản phẩm đã được cập nhật vào giỏ hàng.', cart });
+
+    } catch (error) {
+        console.error('Lỗi khi thêm sản phẩm vào giỏ hàng:', error);
+        res.status(500).json({ message: 'Lỗi server khi thêm sản phẩm vào giỏ hàng.', error: error.message });
+    }
 });
 
 // Cập nhật số lượng sản phẩm trong giỏ hàng
@@ -452,17 +691,31 @@ router.delete('/cart/remove', async (req, res) => {
     res.status(404).send({ message: 'Không tìm thấy giỏ hàng' });
 });
 
-router.delete('/cart/clear/:user_id', async (req, res) => {
+router.delete('/cart/remove-multiple', async (req, res) => {
     try {
-        const user_id = req.params.user_id;
-        await CartModel.deleteOne({ user_id });
-        return res.json({ message: 'Đã xoá toàn bộ giỏ hàng' });
+        const { user_id, product_ids } = req.body;
+
+        if (!user_id || !Array.isArray(product_ids) || product_ids.length === 0) {
+            return res.status(400).json({ message: 'user_id và product_ids (mảng không rỗng) là bắt buộc.' });
+        }
+
+        let cart = await CartModel.findOne({ user_id });
+
+        if (!cart) {
+            return res.status(404).json({ message: 'Không tìm thấy giỏ hàng của người dùng.' });
+        }
+
+        // SỬA LỖI TẠI ĐÂY: Dùng "cart.items" thay vì "cart.products"
+        cart.items = cart.items.filter(item => !product_ids.includes(item.product_id.toString()));
+
+        await cart.save();
+
+        return res.json({ message: 'Đã xóa các sản phẩm đã chọn khỏi giỏ hàng.' });
     } catch (error) {
-        console.error('Lỗi khi xoá giỏ hàng:', error);
+        console.error('Lỗi khi xóa nhiều sản phẩm khỏi giỏ hàng:', error);
         return res.status(500).json({ message: 'Lỗi server' });
     }
 });
-
 
 // ------------------ Favorite ------------------
 
@@ -806,7 +1059,7 @@ router.post('/order/create', async (req, res) => {
         }
 
         // --- Xóa giỏ hàng của người dùng SAU KHI TẤT CẢ ĐƠN HÀNG ĐƯỢC TẠO THÀNH CÔNG ---
-        await CartModel.deleteOne({ user_id: user_id });
+        // await CartModel.deleteOne({ user_id: user_id });
 
         // --- Tăng used_count của voucher nếu có (SAU KHI TẤT CẢ ĐƠN HÀNG ĐƯỢC TẠO) ---
         // Phần này chỉ cần chạy một lần cho toàn bộ giao dịch, không cần lặp trong mỗi đơn hàng con.
@@ -846,7 +1099,7 @@ router.put('/order/pay/:order_id', async (req, res) => {
     }
 
     // Xoá giỏ hàng của user sau khi thanh toán thành công
-    await CartModel.findOneAndDelete({ user_id: order.user_id });
+    // await CartModel.findOneAndDelete({ user_id: order.user_id });
 
     res.send({ message: 'Thanh toán thành công', order });
 });
@@ -953,17 +1206,29 @@ router.get('/vouchers', async (req, res) => {
             start_date: { $lte: now },
             end_date: { $gte: now },
             $or: [
-                { usage_limit: { $eq: null } }, // Voucher không có giới hạn sử dụng
-                // Điều kiện mới: usage_limit không phải null VÀ used_count < usage_limit
+                { usage_limit: { $eq: null } },
                 {
-                    // Đây là object cho trường hợp có giới hạn sử dụng và chưa dùng hết
                     usage_limit: { $ne: null },
                     $expr: { $lt: ['$used_count', '$usage_limit'] }
                 }
             ]
         }).sort({ end_date: 1 });
 
-        res.status(200).json(availableVouchers);
+        // Nếu populate thành công, restaurant_id sẽ là một object chứa { _id, restaurant_name }
+        // Nếu không có restaurant_id, trường này sẽ là null
+        const vouchersWithNames = await Promise.all(availableVouchers.map(async (voucher) => {
+            const voucherObject = voucher.toObject();
+            if (voucherObject.restaurant_id) {
+                // Lấy tên nhà hàng từ model nhà hàng
+                const restaurant = await UserModel.findById(voucherObject.restaurant_id);
+                voucherObject.name = restaurant ? restaurant.name : 'Không xác định';
+            } else {
+                voucherObject.name = 'Hệ thống';
+            }
+            return voucherObject;
+        }));
+
+        res.status(200).json(vouchersWithNames);
 
     } catch (error) {
         console.error("Lỗi CHI TIẾT khi tải danh sách voucher:", error);
@@ -1065,6 +1330,76 @@ router.post('/vouchers/apply', async (req, res) => {
     }
 });
 
+// router.post('/vouchers/apply', async (req, res) => {
+//     try {
+//         await mongoose.connect(COMMON.uri);
+//         const { code, userId, cartItems } = req.body;
+
+//         if (!code || !userId || !cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
+//             return res.status(400).json({ message: 'Thiếu thông tin cần thiết (code, userId, cartItems).' });
+//         }
+
+//         const now = new Date();
+//         const voucher = await VoucherModel.findOne({ code: code.toUpperCase() });
+
+//         if (!voucher) return res.status(404).json({ message: 'Mã voucher không tồn tại.' });
+//         if (!voucher.active || now < voucher.start_date || now > voucher.end_date) {
+//             return res.status(400).json({ message: 'Mã voucher không còn hiệu lực hoặc đã hết hạn.' });
+//         }
+//         if (voucher.usage_limit !== null && voucher.used_count >= voucher.usage_limit) {
+//             return res.status(400).json({ message: 'Mã voucher này đã hết lượt sử dụng.' });
+//         }
+
+//         const totalAmount = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+
+//         if (totalAmount < voucher.min_order_amount) {
+//             return res.status(400).json({ message: `Đơn hàng tối thiểu để áp dụng voucher là ${voucher.min_order_amount}$.` });
+//         }
+
+//         let applicableAmount = 0;
+//         const SYSTEM_VOUCHER_ID = '687cc05d14b65a03d366454f'; 
+
+//         if (voucher.restaurant_id && voucher.restaurant_id.toString() === SYSTEM_VOUCHER_ID) {
+//             applicableAmount = totalAmount;
+//         } else if (voucher.restaurant_id) {
+//             const applicableItems = cartItems.filter(item => 
+//                 item.restaurantId.toString() === voucher.restaurant_id.toString()
+//             );
+//             if (applicableItems.length === 0) {
+//                 return res.status(400).json({ message: 'Voucher này chỉ áp dụng cho sản phẩm của một nhà hàng cụ thể không có trong giỏ hàng của bạn.' });
+//             }
+//             applicableAmount = applicableItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+//         } else {
+//             // Trường hợp không có restaurant_id (coi như toàn hệ thống)
+//             applicableAmount = totalAmount;
+//         }
+
+//         let discountAmount = 0;
+//         if (voucher.discount_type === 'percentage') {
+//             discountAmount = applicableAmount * (voucher.discount_value / 100);
+//             if (voucher.max_discount_amount && discountAmount > voucher.max_discount_amount) {
+//                 discountAmount = voucher.max_discount_amount;
+//             }
+//         } else if (voucher.discount_type === 'fixed') {
+//             discountAmount = voucher.discount_value;
+//         }
+
+//         discountAmount = Math.min(applicableAmount, Math.max(0, discountAmount));
+
+//         res.status(200).json({
+//             message: 'Voucher hợp lệ!',
+//             voucher: voucher,
+//             discount_amount: discountAmount,
+//             final_amount: totalAmount - discountAmount,
+//         });
+
+//     } catch (error) {
+//         console.error("Lỗi khi áp dụng voucher:", error);
+//         res.status(500).json({ message: 'Lỗi server khi áp dụng voucher', error: error.message });
+//     } finally {
+//         // mongoose.connection.close();
+//     }
+// });
 
 router.put('/vouchers/increase-used-count/:id', async (req, res) => {
     try {
@@ -2235,5 +2570,136 @@ router.put('/chat/message/status/:messageId', async (req, res) => {
     } catch (error) {
         console.error('Lỗi khi cập nhật trạng thái tin nhắn:', error);
         res.status(500).json({ message: 'Lỗi server khi cập nhật trạng thái tin nhắn.', error: error.message });
+    }
+});
+
+// Lấy  lại mật khẩu
+router.use(async (req, res, next) => {
+    if (mongoose.connection.readyState !== 1) { // Kiểm tra nếu chưa kết nối
+        try {
+            await mongoose.connect(COMMON.uri);
+            console.log("MongoDB connected for auth routes.");
+        } catch (error) {
+            console.error("Lỗi kết nối MongoDB:", error);
+            return res.status(500).json({ message: "Lỗi server: Không thể kết nối cơ sở dữ liệu." });
+        }
+    }
+    next();
+});
+
+// Cấu hình Nodemailer transporter
+const transporter = nodemailer.createTransport({
+    service: COMMON.emailService, // Hoặc host, port, secure
+    auth: {
+        user: COMMON.emailUser,
+        pass: COMMON.emailPass,
+    },
+});
+
+router.post('/request-password-reset-otp', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ message: 'Vui lòng cung cấp địa chỉ email.' });
+        }
+
+        const user = await UserModel.findOne({ email: email });
+
+        if (!user) {
+            // Trả về thông báo thành công chung chung để tránh tiết lộ email nào tồn tại
+            return res.status(200).json({ message: 'Nếu email của bạn tồn tại trong hệ thống, chúng tôi đã gửi một mã đặt lại mật khẩu đến email đó.' });
+        }
+
+        // Tạo mã OTP
+        const otp = crypto.randomBytes(3).toString('hex').toUpperCase(); // Mã 6 ký tự ngẫu nhiên
+        const otpExpires = Date.now() + COMMON.resetOtpExpiresMinutes * 60 * 1000; // Hết hạn sau X phút
+
+        user.resetPasswordOtp = otp;
+        user.resetPasswordExpires = otpExpires;
+        await user.save();
+
+        // Gửi email chứa mã OTP
+        const mailOptions = {
+            from: COMMON.emailUser,
+            to: user.email,
+            subject: 'Mã đặt lại mật khẩu của bạn',
+            html: `
+                <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                    <h2 style="color: #f55;">Yêu cầu đặt lại mật khẩu</h2>
+                    <p>Xin chào ${user.name || user.email},</p>
+                    <p>Bạn đã yêu cầu đặt lại mật khẩu cho tài khoản của mình. Vui lòng sử dụng mã OTP sau để hoàn tất quá trình:</p>
+                    <h3 style="color: #f55; font-size: 24px; text-align: center; border: 2px dashed #f55; padding: 10px; display: inline-block;">${otp}</h3>
+                    <p>Mã này sẽ hết hạn sau ${COMMON.resetOtpExpiresMinutes} phút.</p>
+                    <p>Nếu bạn không yêu cầu đặt lại mật khẩu, vui lòng bỏ qua email này.</p>
+                    <p>Trân trọng,<br/>Đội ngũ hỗ trợ của chúng tôi</p>
+                </div>
+            `,
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        res.status(200).json({ message: 'Mã đặt lại mật khẩu đã được gửi đến email của bạn.' });
+
+    } catch (error) {
+        console.error('Lỗi khi yêu cầu đặt lại mật khẩu:', error);
+        res.status(500).json({ message: 'Lỗi server khi yêu cầu đặt lại mật khẩu.', error: error.message });
+    }
+});
+
+router.post('/reset-password-otp', async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({ message: 'Vui lòng cung cấp email, mã OTP và mật khẩu mới.' });
+        }
+
+        const user = await UserModel.findOne({
+            email: email,
+            resetPasswordOtp: otp,
+            resetPasswordExpires: { $gt: Date.now() } // Mã OTP còn hiệu lực
+        });
+
+        if (!user) {
+            return res.status(400).json({ message: 'Mã OTP không hợp lệ hoặc đã hết hạn.' });
+        }
+
+        // Mã hóa mật khẩu mới
+        const salt = await bcrypt.genSalt(10);
+        user.password_hash = await bcrypt.hash(newPassword, salt);
+
+        // Xóa mã OTP và thời gian hết hạn sau khi đặt lại thành công
+        user.resetPasswordOtp = undefined;
+        user.resetPasswordExpires = undefined;
+
+        await user.save();
+
+        res.status(200).json({ message: 'Mật khẩu đã được đặt lại thành công.' });
+
+    } catch (error) {
+        console.error('Lỗi khi đặt lại mật khẩu:', error);
+        res.status(500).json({ message: 'Lỗi server khi đặt lại mật khẩu.', error: error.message });
+    }
+});
+
+router.get('/product/by-category-name', async (req, res) => {
+    try {
+        const { name } = req.query; // Lấy tên danh mục từ query parameter
+
+        if (!name) {
+            return res.status(400).json({ message: 'Tên danh mục là bắt buộc.' });
+        }
+
+        // Tìm kiếm các sản phẩm có category khớp với tên được truyền vào
+        const products = await ProductModel.find({
+            category: name, // Tìm sản phẩm có trường 'category' khớp với tên
+            status: true // Chỉ lấy các sản phẩm đang hoạt động
+        }).lean();
+
+        res.status(200).json(products);
+    } catch (error) {
+        console.error('Lỗi khi lấy sản phẩm theo tên danh mục:', error);
+        res.status(500).json({ message: 'Lỗi server khi lấy sản phẩm.', error: error.message });
     }
 });

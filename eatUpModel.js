@@ -12,12 +12,15 @@ const EatUpSchema = new mongoose.Schema({
         type: Number,
         default: 0,
         min: 0,
-        max: 5
+        max: 5  
     },
     num_reviews: {
         type: Number,
         default: 0
-    },
+    },  
+    block: { type: Boolean, default: false },
+    resetPasswordOtp: String,
+    resetPasswordExpires: Date,
 });
 
 const ProductSchema = new mongoose.Schema({
