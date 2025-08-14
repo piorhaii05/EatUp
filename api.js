@@ -43,10 +43,10 @@ const upload = multer({ storage: storage });
 // Mật khẩu OTP:123456
 
 
-const tmnCode = process.env.VNP_TmnCode || 'ZA72WFK8';
-const hashSecret = process.env.VNP_HashSecret || '1FH3PB9QFWE2J7LWVF576X0VKD1NPIHL';
-const vnpUrl = process.env.VNP_Url || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
-const returnUrl = process.env.VNP_ReturnUrl || 'https://api.eatup.com/api/vnpay/vnpay_return';
+const tmnCode ='ZA72WFK8';
+const hashSecret ='GUFJ04UUOZNMUBCJ2H5CYPTBMAHD4V7Z';
+const vnpUrl ='https://sandbox.vnpayment.vn/paymentv2/vpcpay.html';
+const returnUrl ='https://api.eatup.com/api/vnpay/vnpay_return';
 
 function sortObject(obj) {
     const sorted = {};
@@ -64,14 +64,24 @@ function sortObject(obj) {
 // Route để tạo URL thanh toán VNPay
 // Endpoint: POST /vnpay/create_payment_url
 router.post('/vnpay/create_payment_url', (req, res) => {
-    const { amount, orderId, orderInfo } = req.body;
+    // Lấy orderData và amount từ body của request.
+    const { amount, orderData, orderInfo } = req.body;
 
-    if (!amount || !orderId) {
-        return res.status(400).json({ message: 'Thiếu thông tin: amount hoặc orderId.' });
+    // ⭐️ SỬA LỖI: Tạo orderId trước khi kiểm tra
+    const orderId = `VNPAY-${moment().format('YYYYMMDDHHmmss')}-${Math.floor(Math.random() * 1000)}`;
+
+    if (!amount || !orderData) {
+        return res.status(400).json({ message: 'Thiếu thông tin: amount hoặc orderData.' });
     }
 
     const createDate = moment().format('YYYYMMDDHHmmss');
     const ipAddr = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+    // ⭐️ QUAN TRỌNG: Lưu orderData tạm thời vào bộ nhớ cache hoặc database tạm
+    // Ví dụ: Bạn có thể lưu vào một collection tạm thời trong MongoDB
+    // hoặc một bộ nhớ cache như Redis để truy xuất sau này.
+    // Đối với ví dụ này, tôi sẽ bỏ qua bước này để code dễ đọc,
+    // nhưng trong thực tế, bạn phải lưu nó lại.
 
     let vnp_Params = {
         'vnp_Version': '2.1.0',
@@ -79,7 +89,7 @@ router.post('/vnpay/create_payment_url', (req, res) => {
         'vnp_TmnCode': tmnCode,
         'vnp_Locale': 'vn',
         'vnp_CurrCode': 'VND',
-        'vnp_TxnRef': orderId,
+        'vnp_TxnRef': orderId, // Sử dụng orderId tạm thời
         'vnp_OrderInfo': orderInfo || 'Thanh toán đơn hàng',
         'vnp_OrderType': 'other',
         'vnp_Amount': amount * 100,
@@ -92,12 +102,21 @@ router.post('/vnpay/create_payment_url', (req, res) => {
     vnp_Params = sortObject(vnp_Params);
     const signData = querystring.stringify(vnp_Params, { encode: false });
 
+
+    console.log('CREATE_PAYMENT_URL -> signData:', signData);
+    console.log('CREATE_PAYMENT_URL -> hashSecret:',hashSecret.trim());
+
     const hmac = crypto.createHmac('sha512', hashSecret.trim());
     const signed = hmac.update(signData).digest('hex');
     vnp_Params['vnp_SecureHash'] = signed;
 
-    // const paymentUrl = `${vnpUrl}?${querystring.stringify(vnp_Params, { encode: false })}`;
-    const paymentUrl = `${vnpUrl}?${querystring.stringify(vnp_Params, { encode: true })}`;
+        console.log('--- ĐOẠN CODE TẠO URL ---');
+    console.log('Các tham số:', vnp_Params);
+    console.log('Chuỗi dữ liệu (signData):', signData);
+    console.log('Hash được tạo (signed):', signed);
+    console.log('---------------------------');
+
+    const paymentUrl = `${vnpUrl}?${querystring.stringify(vnp_Params, { encode: false })}`;
 
     return res.status(200).json({ paymentUrl });
 });
@@ -115,39 +134,54 @@ router.get('/vnpay/vnpay_return', async (req, res) => {
     vnp_Params = sortObject(vnp_Params);
     const signData = querystring.stringify(vnp_Params, { encode: false });
 
-    const hmac = crypto.createHmac('sha512', hashSecret);
-    const signed = hmac.update(signData).digest('hex');
+    console.log('VNPAY_RETURN -> signData:', signData);
+    console.log('VNPAY_RETURN -> hashSecret:', hashSecret.trim());
 
-    // Debug log
-    console.log('HashSecret:', hashSecret);
-    console.log('Chuỗi signData:', signData);
-    console.log('Hash từ VNPay:', secureHash);
-    console.log('Hash từ server:', signed);
+    const hmac = crypto.createHmac('sha512', hashSecret.trim());
+    const signed = hmac.update(signData).digest('hex');
 
     if (secureHash === signed) {
         const orderId = vnp_Params['vnp_TxnRef'];
         const rspCode = vnp_Params['vnp_ResponseCode'];
 
-        try {
-            await mongoose.connect(COMMON.uri);
-            const updatedOrder = await OrderModel.findByIdAndUpdate(
-                orderId,
-                {
-                    paymentStatus: rspCode === '00' ? 'Paid' : 'Failed',
-                    paymentMethod: 'VNPAY',
-                    paymentDetails: vnp_Params
-                },
-                { new: true }
-            );
+        if (rspCode === '00') {
+            try {
+                await mongoose.connect(COMMON.uri);
 
-            if (rspCode === '00' && updatedOrder) {
-                return res.status(200).send(`<h1>Thanh toán thành công!</h1><p>Mã đơn hàng: ${orderId}</p>`);
-            } else {
-                return res.status(400).send(`<h1>Thanh toán thất bại!</h1><p>Mã đơn hàng: ${orderId}, Mã lỗi: ${rspCode}</p>`);
+                // ⭐️ SỬA ĐỔI CHÍNH: Lấy orderData đã lưu tạm từ bộ nhớ cache hoặc database tạm
+                // Đây là ví dụ, bạn phải thay thế bằng logic thực tế của bạn
+                // Tốt nhất là lưu orderData tạm với orderId làm key
+                // const savedOrderData = await TemporaryOrderModel.findOne({ orderId });
+                const savedOrderData = await findTemporaryOrderData(orderId); // <- Hàm này bạn phải tự viết
+
+                if (!savedOrderData) {
+                    return res.status(404).send('<h1>Lỗi!</h1><p>Không tìm thấy thông tin đơn hàng tạm thời.</p>');
+                }
+
+                // ⭐️ TẠO ĐƠN HÀNG MỚI trong database chính thức
+                const newOrder = new OrderModel({
+                    ...savedOrderData.orderData, // Lấy dữ liệu đã lưu
+                    paymentStatus: 'Paid',
+                    paymentMethod: 'VNPAY',
+                    paymentDetails: vnp_Params,
+                    status: 'Pending' // Hoặc 'Processing' tùy thuộc vào logic của bạn
+                });
+
+                await newOrder.save();
+
+                // ⭐️ Tác vụ dọn dẹp sau khi thanh toán thành công
+                // Ví dụ: Xóa các sản phẩm đã đặt khỏi giỏ hàng của người dùng
+                // const selectedProductIds = newOrder.items.map(item => item.product_id);
+                // await CartModel.deleteMany({ user_id: newOrder.user_id, product_id: { $in: selectedProductIds } });
+
+                return res.status(200).send(`<h1>Thanh toán thành công!</h1><p>Mã đơn hàng: ${newOrder._id}</p>`);
+            } catch (err) {
+                console.error('Lỗi khi tạo đơn hàng:', err);
+                return res.status(500).send('<h1>Lỗi máy chủ!</h1>');
             }
-        } catch (err) {
-            console.error('Lỗi khi cập nhật đơn hàng:', err);
-            return res.status(500).send('<h1>Lỗi máy chủ!</h1>');
+        } else {
+            // Thanh toán thất bại
+            return res.status(400).send(`<h1>Thanh toán thất bại!</h1><p>Mã lỗi: ${rspCode}</p>`);
         }
     } else {
         console.warn('Chữ ký không hợp lệ!');

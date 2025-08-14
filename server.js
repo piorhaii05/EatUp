@@ -25,7 +25,8 @@ const COMMON = require('./COMMON'); // Đảm bảo COMMON.uri được định 
 const apiMobile = require('./api'); // Các API hiện có của bạn
 
 const app = express();
-const port = 3000;
+// const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Middleware để xử lý JSON và URL-encoded data
 app.use(bodyParser.json());
@@ -61,5 +62,5 @@ app.use('/api', apiMobile); // <-- Router chính của bạn, chứa các endpoi
 
 // Khởi động server
 app.listen(port, () => {
-    console.log(`Server chạy tại http://localhost:${port}`);
+    console.log(`Server is running on port ${port}`);
 });

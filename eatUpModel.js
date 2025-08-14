@@ -96,12 +96,11 @@ const OrderSchema = new mongoose.Schema({
     total_amount: { type: Number, required: true },
     // >>> CHỈ THÊM 'Rated' VÀO ENUM CỦA TRƯỜNG STATUS <<<
     status: { type: String, enum: ['Pending', 'Processing', 'Delivered', 'Cancelled', 'Rated'], default: 'Pending' },
-    payment_method: { type: String, enum: ['COD', 'Bank Transfer'], required: true },
+    payment_method: { type: String, enum: ['COD', 'Bank Transfer', 'VNPAY'], required: true },
     address_id: { type: mongoose.Schema.Types.ObjectId, ref: 'address', default: null },
     bank_id: { type: mongoose.Schema.Types.ObjectId, ref: 'bank', default: null },
     shipping_fee: { type: Number, default: 0 },
     discount_amount: { type: Number, default: 0 },
-    transaction_id: { type: String, required: false },
 }, { timestamps: true });
 
 
