@@ -62,5 +62,5 @@ app.use('/api', apiMobile); // <-- Router chính của bạn, chứa các endpoi
 
 // Khởi động server
 app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+    console.log(`Server chạy tại http://localhost:${port}`);
 });
