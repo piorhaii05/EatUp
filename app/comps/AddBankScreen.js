@@ -128,7 +128,7 @@ export default function AddBankScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 15, backgroundColor: '#fff' },
+    container: { flex: 1, padding: 15, backgroundColor: '#fff',},
     headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
     backBtn: { padding: 5, marginRight: 10 },
     title: { fontSize: 20, fontWeight: 'bold', color: '#000' },

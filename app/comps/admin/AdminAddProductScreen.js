@@ -51,9 +51,17 @@ export default function AdminAddProduct({ navigation, route }) {
     };
 
     const handleAddProduct = async () => {
-        // --- Bắt đầu Validation ---
-        if (!name || !price || !rating || !category) {
-            Toast.show({ type: 'info', text1: 'Vui lòng nhập đầy đủ thông tin bắt buộc' });
+        // 1. Reset trạng thái lỗi
+        Toast.hide();
+
+        // 2. Bắt đầu Validation
+        if (!name.trim() || !price.trim() || !rating.trim() || !category) {
+            Toast.show({ type: 'info', text1: 'Lỗi', text2: 'Vui lòng nhập đầy đủ thông tin bắt buộc (*)' });
+            return;
+        }
+
+        if (!image) {
+            Toast.show({ type: 'info', text1: 'Vui lòng chọn ảnh cho món ăn' });
             return;
         }
 
@@ -68,54 +76,53 @@ export default function AdminAddProduct({ navigation, route }) {
             Toast.show({ type: 'error', text1: 'Rating không hợp lệ', text2: 'Vui lòng nhập rating từ 0 đến 5.' });
             return;
         }
-        // --- Kết thúc Validation ---
 
+        // 3. Lấy restaurantId
         const storedUser = await AsyncStorage.getItem('user');
+        if (!storedUser) {
+            Toast.show({ type: 'error', text1: 'Lỗi xác thực', text2: 'Không tìm thấy thông tin nhà hàng. Vui lòng đăng nhập lại.' });
+            return;
+        }
         const user = JSON.parse(storedUser);
         const restaurantId = user._id;
 
         setLoading(true);
 
-        let imageUrl = '';
         try {
-            if (image) {
-                const formData = new FormData();
-                formData.append('image', {
-                    uri: image.uri,
-                    name: 'product.jpg',
-                    type: 'image/jpg'
-                });
+            // 4. Tải ảnh lên
+            const formData = new FormData();
+            formData.append('image', {
+                uri: image.uri,
+                name: 'product.jpg',
+                type: 'image/jpeg' // Sử dụng image/jpeg để tránh lỗi với một số định dạng
+            });
 
-                const resUpload = await fetch(`${linkapi}upload`, {
-                    method: 'POST',
-                    body: formData,
-                    headers: { 'Content-Type': 'multipart/form-data' }
-                });
-                const dataUpload = await resUpload.json();
+            const resUpload = await fetch(`${linkapi}upload`, {
+                method: 'POST',
+                body: formData,
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
 
-                if (dataUpload.url) {
-                    imageUrl = dataUpload.url;
-                } else if (dataUpload.filename) {
-                    // Cần kiểm tra lại cấu trúc linkapi của bạn để nối đúng đường dẫn
-                    // Nếu linkapi là http://your-ip:port/api/ thì `/uploads/filename` sẽ thành http://your-ip:port/uploads/filename
-                    // Đảm bảo server của bạn phục vụ các file tĩnh từ thư mục 'uploads'
-                    const baseUrl = linkapi.endsWith('/') ? linkapi.slice(0, -1) : linkapi; // Xóa / cuối cùng nếu có
-                    imageUrl = `${baseUrl}${dataUpload.url}`; // Sử dụng dataUpload.url nếu backend trả về /uploads/filename
-                } else {
-                    console.warn('Backend không trả về url hay filename sau khi upload.');
-                }
+            if (!resUpload.ok) {
+                const uploadErrorData = await resUpload.json();
+                throw new Error(uploadErrorData.message || 'Lỗi khi tải ảnh lên.');
             }
 
+            const dataUpload = await resUpload.json();
+            const imageUrl = dataUpload.url; // Lấy URL trực tiếp từ backend
+
+            // 5. Tạo đối tượng sản phẩm
             const productData = {
                 restaurant_id: restaurantId,
                 name,
                 description,
-                price: numericPrice, // Sử dụng giá trị đã chuyển đổi số
-                rating: numericRating, // Sử dụng giá trị đã chuyển đổi số
+                price: numericPrice,
+                rating: numericRating,
                 image_url: imageUrl,
                 category
             };
 
+            // 6. Gọi API thêm sản phẩm
             const resAddProduct = await fetch(`${linkapi}product`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -123,21 +130,21 @@ export default function AdminAddProduct({ navigation, route }) {
             });
 
             if (resAddProduct.ok) {
-                Toast.show({ type: 'success', text1: 'Đã thêm món ăn' });
+                Toast.show({ type: 'success', text1: 'Đã thêm món ăn thành công!' });
                 if (reload) {
                     reload();
                 }
                 navigation.goBack();
             } else {
                 const errorData = await resAddProduct.json();
-                Toast.show({ type: 'error', text1: 'Thêm món ăn thất bại', text2: errorData.message || 'Lỗi không xác định từ server' });
+                throw new Error(errorData.message || 'Lỗi không xác định từ server.');
             }
         } catch (err) {
             console.error('Lỗi khi thêm sản phẩm:', err);
-            Toast.show({ type: 'error', text1: 'Lỗi hệ thống', text2: err.message || 'Vui lòng thử lại sau' });
+            Toast.show({ type: 'error', text1: 'Thêm món ăn thất bại', text2: err.message || 'Vui lòng thử lại sau.' });
+        } finally {
+            setLoading(false);
         }
-
-        setLoading(false);
     };
 
     return (

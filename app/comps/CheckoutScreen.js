@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -32,6 +32,87 @@ export default function CheckoutScreen({ navigation, route }) {
     const [appliedVoucherId, setAppliedVoucherId] = useState(null);
 
     const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleZaloPayRedirect = async (event) => {
+        // 1. Lấy apptransid từ URL
+        if (!event.url) return;
+        const storedOrderDataString = await AsyncStorage.getItem('pendingOrderData');
+        if (!storedOrderDataString) {
+            console.log('Không tìm thấy dữ liệu đơn hàng đang chờ xử lý.');
+            return;
+        }
+        const storedOrderData = JSON.parse(storedOrderDataString);
+
+        const url = new URL(event.url);
+        const params = Object.fromEntries(url.searchParams.entries());
+
+        if (params.apptransid) {
+            setIsLoading(true);
+            try {
+                // 2. Gọi API backend để kiểm tra trạng thái ZaloPay
+                const checkStatusResponse = await fetch(`${linkapi}zalopay/check-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ apptransid: params.apptransid }),
+                });
+                const checkStatusData = await checkStatusResponse.json();
+
+                // 3. Nếu ZaloPay báo thành công (return_code === 1), thực hiện các việc còn lại
+                if (checkStatusResponse.ok && checkStatusData.return_code === 1) {
+                    // TẠO ĐƠN HÀNG
+                    console.log('Thanh toán thành công từ ZaloPay. Bắt đầu tạo đơn hàng...');
+
+                    const orderCreationResponse = await fetch(`${linkapi}order/create`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ...storedOrderData, payment_method: 'ZALOPAY', status: 'Paid' }),
+                    });
+
+                    if (orderCreationResponse.ok) {
+                        // XÓA SẢN PHẨM KHỎI GIỎ HÀNG
+                        const selectedProductIds = storedOrderData.items.map(item => item.product_id);
+                        await fetch(`${linkapi}cart/remove-multiple`, {
+                            method: 'DELETE',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_id: storedOrderData.user_id, product_ids: selectedProductIds }),
+                        });
+
+                        // CẬP NHẬT VOUCHER (nếu có)
+                        if (storedOrderData.voucher_id) {
+                            await fetch(`${linkapi}vouchers/increase-used-count/${storedOrderData.voucher_id}`, {
+                                method: 'PUT',
+                                headers: { 'Content-Type': 'application/json' },
+                            });
+                        }
+
+                        // HIỂN THỊ MODAL THÔNG BÁO THÀNH CÔNG
+                        setShowSuccessModal(true);
+                        await AsyncStorage.removeItem('pendingOrderData');
+                        console.log('Đã xóa dữ liệu tạm thời khỏi AsyncStorage.');
+                    } else {
+                        Toast.show({ type: 'error', text1: 'Đặt hàng thất bại', text2: 'Có lỗi xảy ra khi tạo đơn hàng.' });
+                    }
+                } else {
+                    Toast.show({ type: 'error', text1: 'Thanh toán không thành công', text2: 'Vui lòng thử lại.' });
+                }
+            } catch (error) {
+                Toast.show({ type: 'error', text1: 'Lỗi hệ thống', text2: 'Không thể xử lý đơn hàng.' });
+            } finally {
+                setIsLoading(false);
+            }
+        }
+    };
+
+    useEffect(() => {
+        // Lắng nghe sự kiện URL khi ứng dụng đang chạy
+        const listener = Linking.addEventListener('url', handleZaloPayRedirect);
+        // Clean-up: Xóa listener khi component unmount
+        return () => {
+            listener.remove();
+        };
+    }, []);
 
     useFocusEffect(
         useCallback(() => {
@@ -130,8 +211,6 @@ export default function CheckoutScreen({ navigation, route }) {
     const subtotal = calculateSubtotal();
     const totalAmount = Math.max(0, subtotal + shippingFee - discount);
 
-    // Lấy ID nhà hàng từ giỏ hàng để truyền sang màn hình voucher
-    const restaurantId = selectedItems.length > 0 ? selectedItems[0].restaurant_id : null;
 
     const handleCheckout = async () => {
         if (!userId) {
@@ -150,11 +229,11 @@ export default function CheckoutScreen({ navigation, route }) {
             Toast.show({ type: 'error', text1: 'Vui lòng chọn thẻ ngân hàng.', text2: 'Hoặc đổi sang phương thức thanh toán COD.' });
             return;
         }
-
-        const orderId = `ORDER-${Date.now()}`;
+        const restaurantId = selectedItems.length > 0 ? selectedItems[0].restaurant_id : null;
 
         const orderData = {
             user_id: userId,
+            restaurant_id: restaurantId,
             address_id: defaultAddress._id,
             payment_method: paymentMethod,
             bank_id: paymentMethod === 'bank' ? defaultBank?._id : null,
@@ -167,9 +246,10 @@ export default function CheckoutScreen({ navigation, route }) {
             shipping_fee: shippingFee,
             discount_amount: discount,
             voucher_id: appliedVoucherId,
-            status: paymentMethod === 'vnpay' ? 'Processing' : 'Pending'
+            status: paymentMethod === 'ZALOPAY' ? 'Processing' : 'Pending'
         };
 
+        // setOrderData(orderData);
 
         Alert.alert(
             'Xác nhận thanh toán',
@@ -179,31 +259,77 @@ export default function CheckoutScreen({ navigation, route }) {
                 {
                     text: 'Xác nhận',
                     onPress: async () => {
-                        setLoading(true);
+                        setIsLoading(true);
+
                         try {
-                            if (paymentMethod === 'vnpay') {
+                            if (paymentMethod === 'ZALOPAY') {
+                                // === Giai đoạn 1: Gửi yêu cầu đến server backend ===
+                                console.log('--- BƯỚC 1: Bắt đầu quy trình ZaloPay ---');
+                                console.log('Đang tạo đơn hàng ZaloPay trên backend...');
+                                console.log('URL backend:', `${linkapi}zalopay/create`);
+                                console.log('Payload:', JSON.stringify({ amount: totalAmount }));
 
-                                const paymentResponse = await fetch(`${linkapi}vnpay/create_payment_url`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        amount: totalAmount,
-                                        // Sửa lại: Gửi toàn bộ dữ liệu cần thiết để backend có thể tạo đơn hàng sau khi thanh toán
-                                        orderInfo: `Thanhtoandonhang${userId.trim()}`,
-                                        orderData: { ...orderData, payment_method: 'VNPAY', status: 'Processing' }
-                                    }),
-                                });
+                                await AsyncStorage.setItem('pendingOrderData', JSON.stringify(orderData));
+                                console.log('Đã lưu orderData vào AsyncStorage.');
 
-                                const paymentResponseData = await paymentResponse.json();
-                                if (!paymentResponse.ok) {
-                                    Toast.show({ type: 'error', text1: 'Lỗi tạo URL VNPay', text2: paymentResponseData.message || 'Có lỗi xảy ra khi tạo URL.' });
-                                    return;
-                                }
+                                try {
+                                    const paymentResponse = await fetch(`${linkapi}zalopay/create`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            amount: totalAmount,
+                                            orderData: { ...orderData, payment_method: 'ZALOPAY', status: 'Processing' }
+                                        }),
+                                    });
 
-                                if (paymentResponseData.paymentUrl) {
-                                    await Linking.openURL(paymentResponseData.paymentUrl);
-                                } else {
-                                    Toast.show({ type: 'error', text1: 'Không có URL thanh toán', text2: 'Vui lòng thử lại.' });
+                                    // === Giai đoạn 2: Nhận phản hồi từ server ===
+                                    console.log('--- BƯỚC 2: Đã nhận phản hồi từ backend ---');
+                                    console.log('Phản hồi có OK không:', paymentResponse.ok);
+
+                                    const paymentResponseData = await paymentResponse.json();
+                                    console.log('Dữ liệu phản hồi:', paymentResponseData);
+
+                                    if (!paymentResponse.ok) {
+                                        console.error('Phản hồi từ backend không OK.');
+                                        Toast.show({ type: 'error', text1: 'Lỗi tạo URL ZaloPay', text2: paymentResponseData.message || 'Có lỗi xảy ra khi tạo URL.' });
+                                        return;
+                                    }
+
+                                    // === Giai đoạn 3: Kiểm tra và mở URL thanh toán ===
+                                    console.log('--- BƯỚC 3: Kiểm tra URL và mở ZaloPay ---');
+                                    if (paymentResponseData.order_url) {
+                                        console.log('Đã tìm thấy order_url:', paymentResponseData.order_url);
+
+                                        try {
+                                            const canOpen = await Linking.canOpenURL(paymentResponseData.order_url);
+                                            console.log('Thiết bị có thể mở URL không:', canOpen);
+
+                                            if (canOpen) {
+                                                await Linking.openURL(paymentResponseData.order_url);
+                                                console.log('Đã mở ứng dụng ZaloPay.');
+                                            } else {
+                                                // Fallback to web browser, which should always work on an emulator
+                                                await Linking.openURL(paymentResponseData.order_url);
+                                                console.log('Không thể mở ứng dụng. Đã chuyển hướng sang trình duyệt.');
+                                            }
+
+                                        } catch (linkingError) {
+                                            console.error("Lỗi khi mở URL:", linkingError);
+                                            Toast.show({
+                                                type: 'error',
+                                                text1: 'Không thể mở trình duyệt',
+                                                text2: 'Vui lòng kiểm tra lại thiết bị hoặc cài đặt trình duyệt.'
+                                            });
+                                        }
+                                    } else {
+                                        console.error('Không tìm thấy order_url trong phản hồi.');
+                                        Toast.show({ type: 'error', text1: 'Không có URL thanh toán', text2: 'Vui lòng thử lại.' });
+                                    }
+                                } catch (networkError) {
+                                    // === Giai đoạn lỗi: Mất kết nối hoặc lỗi mạng ===
+                                    console.error('--- LỖI ---');
+                                    console.error("Lỗi mạng khi gọi API backend:", networkError);
+                                    Toast.show({ type: 'error', text1: 'Lỗi kết nối', text2: 'Không thể kết nối đến máy chủ. Vui lòng kiểm tra lại mạng.' });
                                 }
 
                             } else {
@@ -259,7 +385,7 @@ export default function CheckoutScreen({ navigation, route }) {
                             console.error("Lỗi khi xử lý thanh toán:", error);
                             Toast.show({ type: 'error', text1: 'Lỗi hệ thống', text2: 'Không thể xử lý đơn hàng. Vui lòng thử lại.' });
                         } finally {
-                            setLoading(false);
+                            setIsLoading(false);
                         }
                     },
                 },
@@ -275,6 +401,7 @@ export default function CheckoutScreen({ navigation, route }) {
             </View>
         );
     }
+
 
     return (
         <View style={styles.container}>
@@ -334,12 +461,12 @@ export default function CheckoutScreen({ navigation, route }) {
 
                     <TouchableOpacity
                         style={styles.paymentMethodRow}
-                        onPress={() => setPaymentMethod('vnpay')}
+                        onPress={() => setPaymentMethod('ZALOPAY')}
                     >
                         <View style={styles.radio}>
-                            <View style={paymentMethod === 'vnpay' ? styles.radioSelected : styles.radioUnselected} />
+                            <View style={paymentMethod === 'ZALOPAY' ? styles.radioSelected : styles.radioUnselected} />
                         </View>
-                        <Text style={styles.paymentMethodText}>Thanh toán qua VNPay</Text>
+                        <Text style={styles.paymentMethodText}>Thanh toán qua ZALOPAY</Text>
                     </TouchableOpacity>
                 </View>
 
@@ -458,7 +585,7 @@ export default function CheckoutScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 5, backgroundColor: '#fff' },
+    container: { flex: 1, padding: 5, backgroundColor: '#fff', },
     header: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
     backBtn: { padding: 5, marginRight: 10, paddingLeft: 15 },
     backButton: {

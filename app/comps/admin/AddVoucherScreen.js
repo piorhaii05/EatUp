@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Picker } from '@react-native-picker/picker';
 import React, { useState } from 'react'; // Import React
 import {
     ActivityIndicator,
@@ -132,13 +133,17 @@ const AddVoucherScreen = ({ navigation }) => {
                 />
 
                 <Text style={styles.inputLabel}>Loại giảm giá <Text style={styles.requiredIndicator}>*</Text></Text>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Nhập 'percentage' hoặc 'fixed'"
-                    value={discountType}
-                    onChangeText={setDiscountType}
-                    autoCapitalize="none"
-                />
+                <View style={styles.pickerContainer}>
+                    <Picker
+                        selectedValue={discountType}
+                        onValueChange={(itemValue) => setDiscountType(itemValue)}
+                        style={{ color: '#333' }}
+                    >
+                        <Picker.Item label="Chọn loại..." value="" />
+                        <Picker.Item label="Phần trăm (%)" value="percentage" />
+                        <Picker.Item label="Giá trị cố định (₫)" value="fixed" />
+                    </Picker>
+                </View>
 
                 <Text style={styles.inputLabel}>Giá trị giảm <Text style={styles.requiredIndicator}>*</Text></Text>
                 <TextInput
@@ -218,7 +223,6 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         borderBottomWidth: 1,
         borderBottomColor: '#E0E0E0',
-        paddingTop: 50, // Điều chỉnh padding cho phù hợp với status bar
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
@@ -275,6 +279,18 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#333',
         minHeight: 100, // Chiều cao tối thiểu cho TextInput nhiều dòng
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.05,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    pickerContainer: {
+        borderWidth: 1,
+        borderColor: '#D1D9E6',
+        borderRadius: 12,
+        marginBottom: 20,
+        backgroundColor: '#FFFFFF',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,

@@ -24,7 +24,7 @@ export default function AppNavigation() {
         },
         tabBarIcon: ({ color, focused }) => {
           let icon;
-          if (route.name === 'Home') icon = <Entypo name="home" size={20} color={focused ? '#f55' : color} />;
+          if (route.name === 'HomeRes') icon = <Entypo name="home" size={20} color={focused ? '#f55' : color} />;
           if (route.name === 'Favorite') icon = <Feather name="heart" size={20} color={focused ? '#f55' : color} />;
           if (route.name === 'Contact') icon = <Feather name="message-circle" size={20} color={focused ? '#f55' : color} />;
           if (route.name === 'Profile') icon = <Feather name="user" size={20} color={focused ? '#f55' : color} />;
@@ -46,7 +46,7 @@ export default function AppNavigation() {
       })}
     >
 
-      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarLabel: 'Home' }} />
+      <Tab.Screen name="HomeRes" component={HomeScreen} options={{ tabBarLabel: 'Home' }} />
       <Tab.Screen name="Favorite" component={FavoriteScreen} options={{ tabBarLabel: 'Yêu thích' }} />
       <Tab.Screen name="Contact" component={ContactScreen} options={{ tabBarLabel: 'Liên hệ' }} />
       <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarLabel: 'Tôi' }} />

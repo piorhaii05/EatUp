@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useState } from 'react';
-import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'; // thêm Alert
 import { linkanh, linkapi } from '../navigation/config';
 import { formatPriceVND } from '../navigation/currency';
 
@@ -34,6 +34,17 @@ export default function FavoriteScreen() {
     }
   };
 
+  const confirmRemoveFavorite = (product_id) => {
+    Alert.alert(
+      "Xác nhận",
+      "Bạn có chắc muốn xóa sản phẩm này khỏi danh sách yêu thích?",
+      [
+        { text: "Hủy", style: "cancel" },
+        { text: "Xóa", style: "destructive", onPress: () => removeFavorite(product_id) }
+      ]
+    );
+  };
+
   const removeFavorite = async (product_id) => {
     try {
       await fetch(linkapi + 'favorite/remove', {
@@ -54,7 +65,7 @@ export default function FavoriteScreen() {
         <Text style={styles.itemName}>{item.product_name}</Text>
         <Text style={styles.itemPrice}>{formatPriceVND(item.product_price)}</Text>
       </View>
-      <TouchableOpacity onPress={() => removeFavorite(item.product_id)}>
+      <TouchableOpacity onPress={() => confirmRemoveFavorite(item.product_id)}>
         <Feather name="x-circle" size={26} color="#f55" />
       </TouchableOpacity>
     </View>

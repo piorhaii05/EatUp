@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Picker } from '@react-native-picker/picker';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import {
@@ -275,50 +276,60 @@ const ManageVoucherScreen = () => {
         onRequestClose={() => setEditModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-      
-            <ScrollView contentContainerStyle={styles.modalScrollContent}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalTitle}>Sửa thông tin Voucher</Text>
 
-                <Text style={styles.inputLabel}>Mã voucher <Text style={{ color: 'red' }}>*</Text></Text>
-                <TextInput style={styles.input} value={editCode} onChangeText={setEditCode} placeholder="VD: SUMMER15" />
+          <ScrollView contentContainerStyle={styles.modalScrollContent}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Sửa thông tin Voucher</Text>
 
-                <Text style={styles.inputLabel}>Mô tả <Text style={{ color: 'red' }}>*</Text></Text>
-                <TextInput style={styles.input} value={editDescription} onChangeText={setEditDescription} placeholder="VD: Giảm 15% cho mọi đơn hàng mùa hè, tối đa 20" multiline numberOfLines={2} />
+              <Text style={styles.inputLabel}>Mã voucher <Text style={{ color: 'red' }}>*</Text></Text>
+              <TextInput style={styles.input} value={editCode} onChangeText={setEditCode} placeholder="VD: SUMMER15" />
 
-                <Text style={styles.inputLabel}>Loại giảm giá <Text style={{ color: 'red' }}>*</Text></Text>
-                <TextInput style={styles.input} value={editDiscountType} onChangeText={setEditDiscountType} placeholder="percentage hoặc fixed" autoCapitalize="none" />
+              <Text style={styles.inputLabel}>Mô tả <Text style={{ color: 'red' }}>*</Text></Text>
+              <TextInput style={styles.input} value={editDescription} onChangeText={setEditDescription} placeholder="VD: Giảm 15% cho mọi đơn hàng mùa hè, tối đa 20" multiline numberOfLines={2} />
 
-                <Text style={styles.inputLabel}>Giá trị giảm <Text style={{ color: 'red' }}>*</Text></Text>
-                <TextInput style={styles.input} value={editDiscountValue} onChangeText={setEditDiscountValue} placeholder="VD: 20" keyboardType="numeric" />
-
-                <Text style={styles.inputLabel}>Giá trị đơn hàng tối thiểu</Text>
-                <TextInput style={styles.input} value={editMinOrderAmount} onChangeText={setEditMinOrderAmount} placeholder="VD: 100" keyboardType="numeric" />
-
-                <Text style={styles.inputLabel}>Giá trị giảm tối đa</Text>
-                <TextInput style={styles.input} value={editMaxDiscountAmount} onChangeText={setEditMaxDiscountAmount} placeholder="VD: 20" keyboardType="numeric" />
-
-                <Text style={styles.inputLabel}>Ngày bắt đầu (YYYY-MM-DD) <Text style={{ color: 'red' }}>*</Text></Text>
-                <TextInput style={styles.input} value={editStartDate} onChangeText={setEditStartDate} placeholder="VD: 2025-06-01" />
-
-                <Text style={styles.inputLabel}>Ngày hết hạn (YYYY-MM-DD) <Text style={{ color: 'red' }}>*</Text></Text>
-                <TextInput style={styles.input} value={editEndDate} onChangeText={setEditEndDate} placeholder="VD: 2025-07-22" />
-
-                <Text style={styles.inputLabel}>Số lượt sử dụng tối đa</Text>
-                <TextInput style={styles.input} value={editUsageLimit} onChangeText={setEditUsageLimit} placeholder="VD: 100 (để trống nếu không giới hạn)" keyboardType="numeric" />
-
-                <View style={styles.modalActionButtons}>
-                  <TouchableOpacity style={styles.modalSaveButton} onPress={handleEditSave}>
-                    <Text style={styles.buttonText}>Lưu</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.modalCancelButton} onPress={() => setEditModalVisible(false)}>
-                    <Text style={styles.buttonText}>Hủy</Text>
-                  </TouchableOpacity>
-                </View>
+              <Text style={styles.inputLabel}>Loại giảm giá <Text style={{ color: 'red' }}>*</Text></Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={editDiscountType}
+                  onValueChange={(itemValue) => setEditDiscountType(itemValue)}
+                  style={{ color: '#333' }}
+                >
+                  <Picker.Item label="Chọn loại..." value="" />
+                  <Picker.Item label="Phần trăm (%)" value="percentage" />
+                  <Picker.Item label="Giá trị cố định (₫)" value="fixed" />
+                </Picker>
               </View>
-            
+
+              <Text style={styles.inputLabel}>Giá trị giảm <Text style={{ color: 'red' }}>*</Text></Text>
+              <TextInput style={styles.input} value={editDiscountValue} onChangeText={setEditDiscountValue} placeholder="VD: 20" keyboardType="numeric" />
+
+              <Text style={styles.inputLabel}>Giá trị đơn hàng tối thiểu</Text>
+              <TextInput style={styles.input} value={editMinOrderAmount} onChangeText={setEditMinOrderAmount} placeholder="VD: 100" keyboardType="numeric" />
+
+              <Text style={styles.inputLabel}>Giá trị giảm tối đa</Text>
+              <TextInput style={styles.input} value={editMaxDiscountAmount} onChangeText={setEditMaxDiscountAmount} placeholder="VD: 20" keyboardType="numeric" />
+
+              <Text style={styles.inputLabel}>Ngày bắt đầu (YYYY-MM-DD) <Text style={{ color: 'red' }}>*</Text></Text>
+              <TextInput style={styles.input} value={editStartDate} onChangeText={setEditStartDate} placeholder="VD: 2025-06-01" />
+
+              <Text style={styles.inputLabel}>Ngày hết hạn (YYYY-MM-DD) <Text style={{ color: 'red' }}>*</Text></Text>
+              <TextInput style={styles.input} value={editEndDate} onChangeText={setEditEndDate} placeholder="VD: 2025-07-22" />
+
+              <Text style={styles.inputLabel}>Số lượt sử dụng tối đa</Text>
+              <TextInput style={styles.input} value={editUsageLimit} onChangeText={setEditUsageLimit} placeholder="VD: 100 (để trống nếu không giới hạn)" keyboardType="numeric" />
+
+              <View style={styles.modalActionButtons}>
+                <TouchableOpacity style={styles.modalSaveButton} onPress={handleEditSave}>
+                  <Text style={styles.buttonText}>Lưu</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalCancelButton} onPress={() => setEditModalVisible(false)}>
+                  <Text style={styles.buttonText}>Hủy</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
           </ScrollView>
-          </View>
+        </View>
       </Modal>
       <Toast />
     </View >
@@ -332,6 +343,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F7F9FC', // Nền tổng thể nhẹ nhàng
     padding: 16,
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#DDD',
+    borderRadius: 10,
+    marginBottom: 15,
+    backgroundColor: '#FDFDFD',
   },
   screenTitle: {
     fontSize: 28,

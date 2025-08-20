@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useState } from 'react';
-import { FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native'; // thêm Alert
 import Toast from 'react-native-toast-message';
 import { linkanh, linkapi } from '../navigation/config';
 import { formatPriceVND } from '../navigation/currency';
@@ -78,6 +78,17 @@ export default function CartScreen({ navigation }) {
         }
     };
 
+    const confirmRemoveItem = (product_id) => {
+        Alert.alert(
+            "Xác nhận",
+            "Bạn có chắc muốn xóa sản phẩm này khỏi giỏ hàng?",
+            [
+                { text: "Hủy", style: "cancel" },
+                { text: "Xóa", style: "destructive", onPress: () => removeItem(product_id) }
+            ]
+        );
+    };
+
     const removeItem = async (product_id) => {
         try {
             await fetch(linkapi + 'cart/remove', {
@@ -87,6 +98,12 @@ export default function CartScreen({ navigation }) {
             });
             setSelectedItems(prev => prev.filter(id => id !== product_id));
             fetchCart(userId);
+
+            Toast.show({
+                type: 'success',
+                text1: 'Thành công',
+                text2: 'Sản phẩm đã được xóa khỏi giỏ hàng.',
+            });
         } catch (error) {
             console.error(error);
         }
@@ -179,7 +196,7 @@ export default function CartScreen({ navigation }) {
                     </TouchableOpacity>
                 </View>
             </View>
-            <TouchableOpacity onPress={() => removeItem(item.product_id)}>
+            <TouchableOpacity onPress={() => confirmRemoveItem(item.product_id)}>
                 <Feather name="x-circle" size={26} color="#f55" />
             </TouchableOpacity>
         </View>
@@ -238,7 +255,7 @@ export default function CartScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 15, backgroundColor: '#fff' },
+    container: { flex: 1, padding: 15, backgroundColor: '#fff', },
     headerWrapper: {
         marginBottom: 20,
     },

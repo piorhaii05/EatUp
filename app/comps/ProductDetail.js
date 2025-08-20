@@ -282,6 +282,7 @@ const styles = StyleSheet.create({
         zIndex: 10,
         position: 'absolute',
         width: '100%',
+        paddingTop: 40
     },
     backBtn: {
         backgroundColor: '#fff',

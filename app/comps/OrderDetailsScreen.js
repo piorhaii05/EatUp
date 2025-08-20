@@ -169,7 +169,7 @@ export default function OrderDetailsScreen({ navigation, route }) {
                 {/* Thông tin thanh toán */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Phương thức thanh toán</Text>
-                    <Text style={styles.paymentText}>{order.payment_method === 'COD' ? 'Thanh toán khi nhận hàng (COD)' : 'Chuyển khoản ngân hàng'}</Text>
+                    <Text style={styles.paymentText}>{order.payment_method === 'COD' ? 'Thanh toán khi nhận hàng (COD)' : 'Chuyển khoản ZaloPay'}</Text>
                     {order.bank_id && (
                         <>
                             <Text style={styles.paymentDetailText}>Ngân hàng: {order.bank_id.card_holder} - {order.bank_id.card_number}</Text>
@@ -224,7 +224,7 @@ export default function OrderDetailsScreen({ navigation, route }) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f8f8f8'
+        backgroundColor: '#f8f8f8',
     },
     header: {
         flexDirection: 'row',
