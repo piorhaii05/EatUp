@@ -357,7 +357,7 @@ export default function ProfileScreen({ navigation }) {
                     </View>
                 </View>
             </Modal>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

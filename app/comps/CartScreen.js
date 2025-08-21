@@ -249,7 +249,7 @@ export default function CartScreen({ navigation }) {
                     <Text style={{ color: '#fff', fontWeight: 'bold' }}>THANH TOÁN</Text>
                 </TouchableOpacity>
             </View>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

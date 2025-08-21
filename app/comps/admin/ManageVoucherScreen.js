@@ -33,6 +33,7 @@ const ManageVoucherScreen = () => {
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
   const [editUsageLimit, setEditUsageLimit] = useState('');
+  const now = new Date();
 
   const fetchVouchers = async () => {
     try {
@@ -52,7 +53,7 @@ const ManageVoucherScreen = () => {
       const sortedVouchers = data.sort((a, b) => {
         const endDateA = new Date(a.end_date);
         const endDateB = new Date(b.end_date);
-        const now = new Date();
+
 
         const isExpiredA = endDateA < now;
         const isExpiredB = endDateB < now;
@@ -98,20 +99,30 @@ const ManageVoucherScreen = () => {
   const handleEditSave = async () => {
     if (!editVoucher) return;
     if (!editCode || !editDescription || !editDiscountType || !editDiscountValue || !editStartDate || !editEndDate) {
-      Toast.show({ // Sử dụng Toast
-        type: 'error',
-        text1: 'Thiếu thông tin',
-        text2: 'Vui lòng điền đầy đủ các trường bắt buộc.',
-      });
+      Alert.alert(
+        'Thiếu thông tin!', 
+        'Vui lòng điền đầy đủ các trường bắt buộc.'
+      );
       return;
     }
     if (editDiscountType !== 'percentage' && editDiscountType !== 'fixed') {
-      Toast.show({ // Sử dụng Toast
-        type: 'error',
-        text1: 'Lỗi loại giảm giá',
-        text2: "Loại giảm giá phải là 'percentage' hoặc 'fixed'.",
-      });
+      Alert.alert(
+        'Lỗi loại giảm giá',
+        "Loại giảm giá phải là 'percentage' hoặc 'fixed'."
+      );
       return;
+    }
+
+    // --- Thêm đoạn kiểm tra ngày tháng ở đây ---
+    const start = new Date(editStartDate);
+    const end = new Date(editEndDate);
+
+    if (end < start) {
+      Alert.alert(
+        'Lỗi ngày tháng!',
+        'Ngày kết thúc phải sau ngày bắt đầu.'
+      );
+      return; // Dừng hàm nếu ngày tháng không hợp lệ
     }
 
     try {
@@ -135,13 +146,13 @@ const ManageVoucherScreen = () => {
         setEditModalVisible(false);
         setEditVoucher(null);
         fetchVouchers();
-        Toast.show({ // Sử dụng Toast
+        Toast.show({
           type: 'success',
           text1: 'Thành công',
           text2: 'Voucher đã được cập nhật!',
         });
       } else {
-        Toast.show({ // Sử dụng Toast
+        Toast.show({
           type: 'error',
           text1: 'Cập nhật thất bại',
           text2: data.message || 'Cập nhật voucher thất bại!',
@@ -149,7 +160,7 @@ const ManageVoucherScreen = () => {
       }
     } catch (error) {
       console.error('Lỗi khi sửa voucher:', error);
-      Toast.show({ // Sử dụng Toast
+      Toast.show({
         type: 'error',
         text1: 'Lỗi hệ thống',
         text2: 'Đã xảy ra lỗi khi sửa voucher. Vui lòng thử lại.',
@@ -199,17 +210,21 @@ const ManageVoucherScreen = () => {
   };
 
   const renderVoucherItem = ({ item }) => {
+    const startDate = new Date(item.start_date);
     const endDate = new Date(item.end_date);
     const isExpired = endDate < new Date();
+
+    const isUpcoming = startDate > now;
     const discountText = item.discount_type === 'percentage'
       ? `Giảm ${item.discount_value}%`
       : `Giảm ${formatPriceVND(item.discount_value)}`;
 
     return (
-      <View style={[styles.voucherItem, isExpired && styles.voucherItemExpired]}>
+      <View style={[styles.voucherItem, isExpired && styles.voucherItemExpired, isUpcoming && { borderLeftColor: '#2196F3', opacity: 0.7 }]}>
         <View style={styles.voucherHeader}>
           <Text style={styles.voucherCode}>{item.code}</Text>
           {isExpired && <Text style={styles.expiredTag}>Đã hết hạn</Text>}
+          {isUpcoming && <Text style={[styles.expiredTag, { backgroundColor: '#2196F3' }]}>Chưa bắt đầu</Text>}
         </View>
         <Text style={styles.descriptionText}>{item.description}</Text>
         <View style={styles.detailsContainer}>
@@ -230,6 +245,7 @@ const ManageVoucherScreen = () => {
           </Text>
         </View>
 
+
         <View style={styles.actionRow}>
           <TouchableOpacity style={styles.editButton} onPress={() => openEditModal(item)}>
             <Text style={styles.buttonText}>Sửa</Text>
@@ -238,6 +254,7 @@ const ManageVoucherScreen = () => {
             <Text style={styles.buttonText}>Xoá</Text>
           </TouchableOpacity>
         </View>
+
       </View>
     );
   };
@@ -331,7 +348,7 @@ const ManageVoucherScreen = () => {
           </ScrollView>
         </View>
       </Modal>
-      <Toast />
+      {/* <Toast /> */}
     </View >
   );
 };

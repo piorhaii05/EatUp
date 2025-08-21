@@ -73,9 +73,11 @@ export default function ChangePasswordScreen({ navigation }) {
                 <Text style={styles.title}>Đổi mật khẩu</Text>
             </View>
 
+            {/* Mật khẩu cũ */}
+            <Text style={styles.label}>Mật khẩu cũ</Text>
             <View style={styles.inputBox}>
                 <TextInput
-                    placeholder="Mật khẩu cũ"
+                    placeholder="Nhập mật khẩu cũ của bạn"
                     style={styles.input}
                     value={oldPassword}
                     onChangeText={setOldPassword}
@@ -86,9 +88,11 @@ export default function ChangePasswordScreen({ navigation }) {
                 </Pressable>
             </View>
 
+            {/* Mật khẩu mới */}
+            <Text style={styles.label}>Mật khẩu mới</Text>
             <View style={styles.inputBox}>
                 <TextInput
-                    placeholder="Mật khẩu mới"
+                    placeholder="Nhập mật khẩu mới"
                     style={styles.input}
                     value={newPassword}
                     onChangeText={setNewPassword}
@@ -99,9 +103,11 @@ export default function ChangePasswordScreen({ navigation }) {
                 </Pressable>
             </View>
 
+            {/* Xác nhận mật khẩu mới */}
+            <Text style={styles.label}>Xác nhận mật khẩu mới</Text>
             <View style={styles.inputBox}>
                 <TextInput
-                    placeholder="Xác nhận mật khẩu mới"
+                    placeholder="Nhập lại mật khẩu mới"
                     style={styles.input}
                     value={confirmPassword}
                     onChangeText={setConfirmPassword}
@@ -124,6 +130,12 @@ const styles = StyleSheet.create({
     headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
     backBtn: { padding: 5, marginRight: 10 },
     title: { fontSize: 20, fontWeight: 'bold', color: '#000' },
+    label: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#555',
+        marginBottom: 8,
+    },
     inputBox: {
         flexDirection: 'row',
         alignItems: 'center',

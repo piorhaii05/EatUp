@@ -299,7 +299,7 @@ export default function RateProductsScreen({ navigation, route }) {
                     )}
                 </TouchableOpacity>
             </KeyboardAvoidingView>
-            <Toast />
+            {/* <Toast /> */}
         </SafeAreaView>
     );
 }

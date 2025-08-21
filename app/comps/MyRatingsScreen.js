@@ -251,7 +251,7 @@ const MyRatingsScreen = ({ navigation }) => {
                 </ScrollView>
             )}
 
-            <Toast />
+            {/* <Toast /> */}
         </SafeAreaView>
     );
 };

@@ -297,7 +297,7 @@ export default function HomeScreen({ navigation }) {
                     renderItem={({ item }) => renderProduct(item)}
                 />
             </ScrollView>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

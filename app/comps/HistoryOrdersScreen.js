@@ -281,7 +281,7 @@ export default function HistoryOrdersScreen({ navigation, route }) {
                     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#f55']} />
                 }
             />
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

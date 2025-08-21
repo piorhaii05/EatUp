@@ -149,18 +149,39 @@ export default function CheckoutScreen({ navigation, route }) {
             fetchInitialData();
 
             // Xử lý dữ liệu voucher
-            if (route.params?.appliedVoucher && route.params?.discountAmount) {
-                const { appliedVoucher, discountAmount, voucherCode } = route.params;
-                setDiscount(discountAmount);
-                setAppliedVoucherCode(voucherCode);
-                setAppliedVoucherId(appliedVoucher._id);
-                navigation.setParams({ appliedVoucher: undefined, discountAmount: undefined, voucherCode: undefined });
-            } else if (route.params?.appliedVoucher === null) {
-                setDiscount(0);
-                setAppliedVoucherCode(null);
-                setAppliedVoucherId(null);
-                navigation.setParams({ appliedVoucher: undefined, discountAmount: undefined, voucherCode: undefined });
-            }
+            // if (route.params?.appliedVoucher && route.params?.discountAmount) {
+            //     const { appliedVoucher, discountAmount, voucherCode } = route.params;
+            //     setDiscount(discountAmount);
+            //     setAppliedVoucherCode(voucherCode);
+            //     setAppliedVoucherId(appliedVoucher._id);
+            //     navigation.setParams({ appliedVoucher: undefined, discountAmount: undefined, voucherCode: undefined });
+            // } else if (route.params?.appliedVoucher === null) {
+            //     setDiscount(0);
+            //     setAppliedVoucherCode(null);
+            //     setAppliedVoucherId(null);
+            //     navigation.setParams({ appliedVoucher: undefined, discountAmount: undefined, voucherCode: undefined });
+            // }
+
+            const fetchVoucherData = async () => {
+                try {
+                    const storedDataString = await AsyncStorage.getItem('appliedVoucherData');
+                    if (storedDataString !== null) {
+                        const storedData = JSON.parse(storedDataString);
+
+                        // Cập nhật state với dữ liệu từ AsyncStorage
+                        setDiscount(storedData.discountAmount);
+                        setAppliedVoucherCode(storedData.voucherCode);
+                        setAppliedVoucherId(storedData.appliedVoucher._id);
+
+                        // Quan trọng: Xóa dữ liệu sau khi đã sử dụng
+                        await AsyncStorage.removeItem('appliedVoucherData');
+                    }
+                } catch (error) {
+                    console.error('Failed to retrieve or remove voucher data:', error);
+                }
+            };
+
+            fetchVoucherData();
         }, [route.params])
     );
 
@@ -579,7 +600,7 @@ export default function CheckoutScreen({ navigation, route }) {
                     </View>
                 </View>
             </Modal>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

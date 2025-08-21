@@ -177,16 +177,31 @@ export default function VoucherScreen() {
 
             Toast.show({ type: 'success', text1: 'Áp dụng voucher thành công!', text2: `Giảm giá: ${data.discount_amount.toFixed(2)}$` });
 
-            navigation.navigate({
-                name: 'Checkout',
-                params: {
-                    appliedVoucher: selectedVoucher,
-                    discountAmount: data.discount_amount,
-                    voucherCode: selectedVoucher.code,
-                    selectedItems: selectedItems,
-                },
-                merge: true,
-            });
+            const voucherData = {
+                appliedVoucher: selectedVoucher,
+                discountAmount: data.discount_amount,
+                voucherCode: selectedVoucher.code,
+            };
+
+            try {
+                await AsyncStorage.setItem('appliedVoucherData', JSON.stringify(voucherData));
+                console.log('Voucher data saved successfully!');
+            } catch (error) {
+                console.error('Error saving voucher data:', error);
+            }
+
+            // Sau khi lưu xong, gọi goBack để quay lại màn hình trước đó
+            navigation.goBack();
+            // navigation.navigate({
+            //     name: 'Checkout',
+            //     params: {
+            //         appliedVoucher: selectedVoucher,
+            //         discountAmount: data.discount_amount,
+            //         voucherCode: selectedVoucher.code,
+            //         selectedItems: selectedItems,
+            //     },
+            //     merge: true,
+            // });
 
         } catch (error) {
             console.error("Lỗi khi áp dụng voucher:", error);
@@ -325,7 +340,7 @@ export default function VoucherScreen() {
                     )}
                 </TouchableOpacity>
             </View>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

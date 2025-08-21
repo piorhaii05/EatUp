@@ -280,7 +280,7 @@ export default function SearchResultsScreen({ navigation, route }) {
                     )}
                 </ScrollView>
             )}
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

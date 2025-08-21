@@ -98,7 +98,6 @@ export default function VoucherListScreen() {
                     <Text style={styles.voucherDates}>
                         {new Date(item.start_date).toLocaleDateString('vi-VN', { year: 'numeric', month: '2-digit', day: '2-digit' })} - {new Date(item.end_date).toLocaleDateString('vi-VN', { year: 'numeric', month: '2-digit', day: '2-digit' })}
                     </Text>
-                    <Text style={styles.voucherConditions}>Cho toàn bộ sản phẩm</Text>
                 </View>
             </View>
         );
@@ -154,7 +153,7 @@ export default function VoucherListScreen() {
                     )}
                 />
             )}
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }
@@ -243,28 +242,28 @@ const styles = StyleSheet.create({
         padding: 12,
     },
     voucherTitle: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 'bold',
         marginBottom: 4,
     },
     voucherDescription: {
-        fontSize: 14,
+        fontSize: 16,
         color: '#333',
         marginBottom: 4,
     },
     voucherCode: {
-        fontSize: 13,
+        fontSize: 15,
         color: '#888',
         fontWeight: 'bold',
         marginBottom: 2,
     },
     voucherDates: {
-        fontSize: 12,
+        fontSize: 14,
         color: '#888',
         marginBottom: 2,
     },
     voucherConditions: {
-        fontSize: 12,
+        fontSize: 14,
         color: '#666',
     },
     // Loại bỏ unavailableReason vì không còn hiển thị lý do

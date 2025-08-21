@@ -38,6 +38,7 @@ import EditAddressAdminScreen from '../comps/admin/EditAddressAdminScreen';
 import EditNameAdminScreen from '../comps/admin/EditNameAdminScreen';
 import EditPasswordAdminScreen from '../comps/admin/EditPasswordAdminScreen';
 import ManageFoodsScreen from '../comps/admin/ManageFoodsScreen';
+import ManageVoucherScreen from '../comps/admin/ManageVoucherScreen';
 import AdminAppNavigatorScreen from './AdminAppNavigator';
 
 import Bottombar from './Bottombar';
@@ -65,6 +66,7 @@ const AppNavigator = () => (
     <Stack.Screen name="AdminAddProduct" component={AdminAddProductScreen} />
     <Stack.Screen name="ProductDetail" component={ProductDetail} options={{ title: 'Chi tiết sản phẩm' }} />
     <Stack.Screen name="ManagerFood" component={ManageFoodsScreen} />
+    <Stack.Screen name="ManageVoucher" component={ManageVoucherScreen} />
     <Stack.Screen name="EditFood" component={AdminEditFoodScreen} />
     <Stack.Screen name="HistoryOrders" component={HistoryOrdersScreen} />
     <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />

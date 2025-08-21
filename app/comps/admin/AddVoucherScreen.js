@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Picker } from '@react-native-picker/picker';
-import React, { useState } from 'react'; // Import React
+import React, { useState } from 'react';
 import {
     ActivityIndicator,
     ScrollView,
@@ -11,7 +11,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import Toast from 'react-native-toast-message'; // Đảm bảo đã import Toast
+import Toast from 'react-native-toast-message';
 import { linkapi } from '../../navigation/config';
 
 const AddVoucherScreen = ({ navigation }) => {
@@ -24,7 +24,7 @@ const AddVoucherScreen = ({ navigation }) => {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     const [usageLimit, setUsageLimit] = useState('');
-    const [loading, setLoading] = useState(false); // State cho loading button
+    const [loading, setLoading] = useState(false);
 
     const handleAddVoucher = async () => {
         // Validation cơ bản (có thể mở rộng thêm)
@@ -47,7 +47,21 @@ const AddVoucherScreen = ({ navigation }) => {
             return;
         }
 
-        setLoading(true); // Bắt đầu loading
+        // --- Thêm kiểm tra ngày ở đây ---
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+
+        if (end < start) {
+            Toast.show({
+                type: 'error',
+                text1: 'Lỗi ngày tháng!',
+                text2: 'Ngày kết thúc phải sau ngày bắt đầu.'
+            });
+            return;
+        }
+        // --- Kết thúc kiểm tra ngày ---
+
+        setLoading(true);
         const restaurant_id = await AsyncStorage.getItem('restaurant_id');
         if (!restaurant_id) {
             setLoading(false);
@@ -68,7 +82,6 @@ const AddVoucherScreen = ({ navigation }) => {
                     description,
                     discount_type: discountType,
                     discount_value: Number(discountValue),
-                    // Sử dụng toán tử nullish coalescing (??) để chuyển về null nếu rỗng
                     min_order_amount: minOrderAmount ? Number(minOrderAmount) : null,
                     max_discount_amount: maxDiscountAmount ? Number(maxDiscountAmount) : null,
                     start_date: startDate,
@@ -83,10 +96,11 @@ const AddVoucherScreen = ({ navigation }) => {
                 Toast.show({
                     type: 'success',
                     text1: 'Thành công!',
-                    text2: 'Đã thêm voucher mới.'
+                    text2: 'Đã thêm voucher mới.',
+                    onHide: () => { navigation.navigate('HomeAdmin', { shouldRefresh: true }); }
                 });
-                // Quay lại và refresh danh sách voucher
-                navigation.navigate('ManageVoucher', { shouldRefresh: true });
+
+
             } else {
                 Toast.show({
                     type: 'error',
@@ -102,7 +116,7 @@ const AddVoucherScreen = ({ navigation }) => {
                 text2: 'Không thể thêm voucher. Vui lòng kiểm tra kết nối mạng.'
             });
         } finally {
-            setLoading(false); // Kết thúc loading
+            setLoading(false);
         }
     };
 
@@ -117,7 +131,6 @@ const AddVoucherScreen = ({ navigation }) => {
             </View>
 
             <ScrollView contentContainerStyle={styles.scrollViewContent}>
-                {/* Mỗi cặp Label và TextInput */}
                 <Text style={styles.inputLabel}>Mã voucher <Text style={styles.requiredIndicator}>*</Text></Text>
                 <TextInput style={styles.input} placeholder="VD: SUMMER2025" value={code} onChangeText={setCode} />
 
@@ -154,7 +167,7 @@ const AddVoucherScreen = ({ navigation }) => {
                     onChangeText={setDiscountValue}
                 />
 
-                <Text style={styles.inputLabel}>Giá trị đơn hàng tối thiểu <Text style={styles.requiredIndicator}>*</Text></Text>
+                <Text style={styles.inputLabel}>Giá trị đơn hàng tối thiểu</Text>
                 <TextInput
                     style={styles.input}
                     placeholder="VD: 20000"
@@ -163,7 +176,7 @@ const AddVoucherScreen = ({ navigation }) => {
                     onChangeText={setMinOrderAmount}
                 />
 
-                <Text style={styles.inputLabel}>Giá trị giảm tối đa <Text style={styles.requiredIndicator}>*</Text></Text>
+                <Text style={styles.inputLabel}>Giá trị giảm tối đa</Text>
                 <TextInput
                     style={styles.input}
                     placeholder="VD: 20000"
@@ -188,10 +201,10 @@ const AddVoucherScreen = ({ navigation }) => {
                     onChangeText={setEndDate}
                 />
 
-                <Text style={styles.inputLabel}>Số lượt sử dụng tối đa <Text style={styles.requiredIndicator}>*</Text></Text>
+                <Text style={styles.inputLabel}>Số lượt sử dụng tối đa</Text>
                 <TextInput
                     style={styles.input}
-                    placeholder="VD: 100 "
+                    placeholder="VD: 100"
                     keyboardType="numeric"
                     value={usageLimit}
                     onChangeText={setUsageLimit}
@@ -212,7 +225,7 @@ const AddVoucherScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     fullScreenContainer: {
         flex: 1,
-        backgroundColor: '#F7F9FC', // Nền tổng thể nhẹ nhàng
+        backgroundColor: '#F7F9FC',
     },
     header: {
         flexDirection: 'row',
@@ -241,7 +254,7 @@ const styles = StyleSheet.create({
     },
     scrollViewContent: {
         padding: 20,
-        paddingBottom: 40, // Để đảm bảo nút không bị che khi scroll
+        paddingBottom: 40,
         flexGrow: 1,
     },
     inputLabel: {
@@ -256,7 +269,7 @@ const styles = StyleSheet.create({
     },
     input: {
         borderWidth: 1,
-        borderColor: '#D1D9E6', // Màu border mềm mại hơn
+        borderColor: '#D1D9E6',
         borderRadius: 12,
         padding: 14,
         marginBottom: 20,
@@ -278,7 +291,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF',
         fontSize: 16,
         color: '#333',
-        minHeight: 100, // Chiều cao tối thiểu cho TextInput nhiều dòng
+        minHeight: 100,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
@@ -298,12 +311,12 @@ const styles = StyleSheet.create({
         elevation: 1,
     },
     addButton: {
-        backgroundColor: '#4CAF50', // Màu xanh lá cây tươi mới và nhất quán
+        backgroundColor: '#4CAF50',
         paddingVertical: 16,
         borderRadius: 14,
         alignItems: 'center',
         marginTop: 20,
-        marginBottom: 30, // Khoảng cách lớn hơn với cuối trang
+        marginBottom: 30,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.25,
@@ -313,7 +326,7 @@ const styles = StyleSheet.create({
     addButtonText: {
         color: '#fff',
         fontSize: 18,
-        fontWeight: '700', // Đậm hơn
+        fontWeight: '700',
     },
 });
 

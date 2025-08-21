@@ -54,30 +54,44 @@ export default function EditAddressScreen({ route, navigation }) {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Trường Tên Người Nhận */}
+                <Text style={styles.label}>Họ và tên</Text>
                 <TextInput
-                    style={[styles.input, { backgroundColor: '#eee' }]}
+                    style={styles.inputDisabled}
                     value={address.name}
                     editable={false}
                 />
+                
+                {/* Trường Số Điện Thoại */}
+                <Text style={styles.label}>Số điện thoại</Text>
                 <TextInput
-                    style={[styles.input, { backgroundColor: '#eee' }]}
+                    style={styles.inputDisabled}
                     value={address.phone}
                     editable={false}
                 />
+                
+                {/* Trường Tỉnh/Thành phố */}
+                <Text style={styles.label}>Tỉnh/Thành phố</Text>
                 <TextInput
-                    placeholder="Tỉnh/Thành phố*"
+                    placeholder="VD: Hồ Chí Minh"
                     style={styles.input}
                     value={city}
                     onChangeText={setCity}
                 />
+                
+                {/* Trường Phường/Xã */}
+                <Text style={styles.label}>Phường/Xã</Text>
                 <TextInput
-                    placeholder="Phường/Xã*"
+                    placeholder="VD: Phường 1"
                     style={styles.input}
                     value={ward}
                     onChangeText={setWard}
                 />
+                
+                {/* Trường Đường, Tòa nhà, Số nhà */}
+                <Text style={styles.label}>Đường, Tòa nhà, Số nhà</Text>
                 <TextInput
-                    placeholder="Tên đường, Tòa nhà, Số nhà*"
+                    placeholder="VD: 123 Đường ABC, Tòa nhà XYZ"
                     style={styles.input}
                     value={street}
                     onChangeText={setStreet}
@@ -87,6 +101,7 @@ export default function EditAddressScreen({ route, navigation }) {
                     <Text style={styles.saveText}>Lưu</Text>
                 </TouchableOpacity>
             </ScrollView>
+            {/* <Toast /> */}
         </View>
     );
 }
@@ -96,6 +111,12 @@ const styles = StyleSheet.create({
     headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
     backBtn: { padding: 5, marginRight: 10 },
     title: { fontSize: 20, fontWeight: 'bold', color: '#000' },
+    label: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#555',
+        marginBottom: 8,
+    },
     input: {
         borderWidth: 1.5,
         borderColor: '#ccc',
@@ -103,6 +124,16 @@ const styles = StyleSheet.create({
         padding: 18,
         marginBottom: 20,
         fontSize: 16,
+    },
+    inputDisabled: {
+        borderWidth: 1.5,
+        borderColor: '#ccc',
+        borderRadius: 10,
+        padding: 18,
+        marginBottom: 20,
+        fontSize: 16,
+        backgroundColor: '#f0f0f0',
+        color: '#888',
     },
     saveBtn: {
         backgroundColor: '#f55',

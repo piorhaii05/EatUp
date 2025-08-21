@@ -280,7 +280,7 @@ export default function ChatDetailScreen({ navigation }) {
                     <Ionicons name="send" size={24} color="#fff" />
                 </TouchableOpacity>
             </KeyboardAvoidingView>
-            <Toast />
+            {/* <Toast /> */}
         </SafeAreaView>
     );
 }

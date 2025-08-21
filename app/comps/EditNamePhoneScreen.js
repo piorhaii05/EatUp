@@ -138,7 +138,7 @@ export default function EditNamePhoneScreen({ navigation }) {
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
                 <Text style={styles.saveText}>LƯU</Text>
             </TouchableOpacity>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

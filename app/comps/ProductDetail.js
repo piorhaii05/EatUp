@@ -268,7 +268,7 @@ export default function ProductDetail({ route, navigation }) {
                     <Text style={styles.addText}> Thêm vào giỏ hàng</Text>
                 </TouchableOpacity>
             </View>
-            <Toast />
+            {/* <Toast /> */}
         </View>
     );
 }

@@ -300,7 +300,7 @@ export default function RestaurantDetailScreen({ navigation }) {
                         </View>
                     )}
                 </View>
-                <Toast />
+                {/* <Toast /> */}
             </ScrollView>
 
             {/* Nút trò chuyện nổi */}
